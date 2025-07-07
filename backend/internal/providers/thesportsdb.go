@@ -1,0 +1,301 @@
+package providers
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/jstittsworth/dfs-optimizer/internal/dfs"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
+)
+
+// TheSportsDBClient implements the Provider interface for TheSportsDB API
+type TheSportsDBClient struct {
+	httpClient  *http.Client
+	cache       dfs.CacheProvider
+	logger      *logrus.Logger
+	rateLimiter *rate.Limiter
+	apiKey      string
+}
+
+// NewTheSportsDBClient creates a new TheSportsDB API client
+func NewTheSportsDBClient(cache dfs.CacheProvider, logger *logrus.Logger) *TheSportsDBClient {
+	return &TheSportsDBClient{
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+		cache:       cache,
+		logger:      logger,
+		rateLimiter: rate.NewLimiter(rate.Every(2*time.Second), 1), // 30 requests per minute
+		apiKey:      "3", // Free tier API key
+	}
+}
+
+// TheSportsDB API response structures
+type sportsDBPlayersResponse struct {
+	Player []sportsDBPlayer `json:"player"`
+}
+
+type sportsDBPlayer struct {
+	IDPlayer           string `json:"idPlayer"`
+	IDTeam             string `json:"idTeam"`
+	StrPlayer          string `json:"strPlayer"`
+	StrNationality     string `json:"strNationality"`
+	StrTeam            string `json:"strTeam"`
+	StrSport           string `json:"strSport"`
+	StrPosition        string `json:"strPosition"`
+	StrHeight          string `json:"strHeight"`
+	StrWeight          string `json:"strWeight"`
+	StrThumb           string `json:"strThumb"`
+	StrCutout          string `json:"strCutout"`
+	StrRender          string `json:"strRender"`
+	StrBanner          string `json:"strBanner"`
+	StrFanart1         string `json:"strFanart1"`
+	StrFanart2         string `json:"strFanart2"`
+	StrFanart3         string `json:"strFanart3"`
+	StrFanart4         string `json:"strFanart4"`
+	StrDescriptionEN   string `json:"strDescriptionEN"`
+}
+
+type sportsDBTeamsResponse struct {
+	Teams []sportsDBTeam `json:"teams"`
+}
+
+type sportsDBTeam struct {
+	IDTeam        string `json:"idTeam"`
+	StrTeam       string `json:"strTeam"`
+	StrTeamShort  string `json:"strTeamShort"`
+	StrAlternate  string `json:"strAlternate"`
+	StrSport      string `json:"strSport"`
+	StrLeague     string `json:"strLeague"`
+}
+
+// GetPlayers searches for players by date (not directly supported, will search by team)
+func (c *TheSportsDBClient) GetPlayers(sport dfs.Sport, date string) ([]dfs.PlayerData, error) {
+	// TheSportsDB doesn't support date-based player queries
+	// We would need to get teams for the sport and then get their rosters
+	return nil, fmt.Errorf("date-based player search not supported by TheSportsDB")
+}
+
+// GetPlayer searches for a specific player by name
+func (c *TheSportsDBClient) GetPlayer(sport dfs.Sport, playerName string) (*dfs.PlayerData, error) {
+	cacheKey := fmt.Sprintf("thesportsdb:player:%s", playerName)
+	
+	// Check cache first
+	var cachedPlayer dfs.PlayerData
+	err := c.cache.GetSimple(cacheKey, &cachedPlayer)
+	if err == nil {
+		return &cachedPlayer, nil
+	}
+
+	// Rate limiting
+	c.rateLimiter.Wait(nil)
+
+	// Search for player
+	searchURL := fmt.Sprintf("https://www.thesportsdb.com/api/v1/json/%s/searchplayers.php?p=%s", 
+		c.apiKey, url.QueryEscape(playerName))
+
+	var playersResp sportsDBPlayersResponse
+	err = c.makeRequest(searchURL, &playersResp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search player: %w", err)
+	}
+
+	if len(playersResp.Player) == 0 {
+		return nil, fmt.Errorf("player not found: %s", playerName)
+	}
+
+	// Find best match based on sport
+	var bestMatch *sportsDBPlayer
+	sportName := c.getSportName(sport)
+	
+	for i := range playersResp.Player {
+		player := &playersResp.Player[i]
+		if strings.EqualFold(player.StrSport, sportName) {
+			bestMatch = player
+			break
+		}
+		// Keep first match as fallback
+		if bestMatch == nil {
+			bestMatch = player
+		}
+	}
+
+	if bestMatch == nil {
+		return nil, fmt.Errorf("no matching player found for sport %s", sport)
+	}
+
+	playerData := c.convertToPlayerData(*bestMatch)
+	
+	// Cache for 24 hours
+	c.cache.SetSimple(cacheKey, playerData, 24*time.Hour)
+	
+	return &playerData, nil
+}
+
+// GetTeamRoster fetches all players for a specific team
+func (c *TheSportsDBClient) GetTeamRoster(sport dfs.Sport, teamName string) ([]dfs.PlayerData, error) {
+	cacheKey := fmt.Sprintf("thesportsdb:roster:%s:%s", sport, teamName)
+	
+	// Check cache first
+	var cachedRoster []dfs.PlayerData
+	err := c.cache.GetSimple(cacheKey, &cachedRoster)
+	if err == nil {
+		return cachedRoster, nil
+	}
+
+	// First, search for the team to get team ID
+	teamID, err := c.searchTeamID(teamName, sport)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find team: %w", err)
+	}
+
+	// Rate limiting
+	c.rateLimiter.Wait(nil)
+
+	// Get all players for the team
+	rosterURL := fmt.Sprintf("https://www.thesportsdb.com/api/v1/json/%s/lookup_all_players.php?id=%s", 
+		c.apiKey, teamID)
+
+	var playersResp sportsDBPlayersResponse
+	err = c.makeRequest(rosterURL, &playersResp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch team roster: %w", err)
+	}
+
+	var players []dfs.PlayerData
+	for _, player := range playersResp.Player {
+		players = append(players, c.convertToPlayerData(player))
+	}
+
+	// Cache for 6 hours
+	if len(players) > 0 {
+		c.cache.SetSimple(cacheKey, players, 6*time.Hour)
+	}
+
+	return players, nil
+}
+
+// searchTeamID finds the team ID by searching for team name
+func (c *TheSportsDBClient) searchTeamID(teamName string, sport dfs.Sport) (string, error) {
+	// Rate limiting
+	c.rateLimiter.Wait(nil)
+
+	searchURL := fmt.Sprintf("https://www.thesportsdb.com/api/v1/json/%s/searchteams.php?t=%s", 
+		c.apiKey, url.QueryEscape(teamName))
+
+	var teamsResp sportsDBTeamsResponse
+	err := c.makeRequest(searchURL, &teamsResp)
+	if err != nil {
+		return "", err
+	}
+
+	if len(teamsResp.Teams) == 0 {
+		return "", fmt.Errorf("team not found: %s", teamName)
+	}
+
+	// Find best match based on sport
+	sportName := c.getSportName(sport)
+	for _, team := range teamsResp.Teams {
+		if strings.EqualFold(team.StrSport, sportName) {
+			return team.IDTeam, nil
+		}
+	}
+
+	// Return first match if no sport match found
+	return teamsResp.Teams[0].IDTeam, nil
+}
+
+// convertToPlayerData converts TheSportsDB player to our format
+func (c *TheSportsDBClient) convertToPlayerData(player sportsDBPlayer) dfs.PlayerData {
+	// Choose best available image
+	imageURL := player.StrThumb
+	if imageURL == "" {
+		imageURL = player.StrCutout
+	}
+	if imageURL == "" {
+		imageURL = player.StrRender
+	}
+
+	return dfs.PlayerData{
+		ExternalID:  player.IDPlayer,
+		Name:        player.StrPlayer,
+		Team:        player.StrTeam,
+		Position:    c.normalizePosition(player.StrPosition),
+		Stats:       make(map[string]float64), // TheSportsDB doesn't provide stats
+		ImageURL:    imageURL,
+		LastUpdated: time.Now(),
+		Source:      "thesportsdb",
+	}
+}
+
+// normalizePosition converts position to standard format
+func (c *TheSportsDBClient) normalizePosition(position string) string {
+	// Map common position variations to standard abbreviations
+	position = strings.ToUpper(strings.TrimSpace(position))
+	
+	// NFL positions
+	switch position {
+	case "QUARTERBACK":
+		return "QB"
+	case "RUNNING BACK":
+		return "RB"
+	case "WIDE RECEIVER":
+		return "WR"
+	case "TIGHT END":
+		return "TE"
+	case "DEFENSE", "DEFENSIVE":
+		return "DST"
+	}
+	
+	// NBA positions
+	switch position {
+	case "POINT GUARD":
+		return "PG"
+	case "SHOOTING GUARD":
+		return "SG"
+	case "SMALL FORWARD":
+		return "SF"
+	case "POWER FORWARD":
+		return "PF"
+	case "CENTER":
+		return "C"
+	}
+	
+	// MLB positions are typically already abbreviated
+	
+	return position
+}
+
+// makeRequest performs HTTP request
+func (c *TheSportsDBClient) makeRequest(url string, target interface{}) error {
+	resp, err := c.httpClient.Get(url)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+	
+	return json.NewDecoder(resp.Body).Decode(target)
+}
+
+// getSportName converts our sport enum to TheSportsDB sport name
+func (c *TheSportsDBClient) getSportName(sport dfs.Sport) string {
+	switch sport {
+	case dfs.SportNBA:
+		return "Basketball"
+	case dfs.SportNFL:
+		return "American Football"
+	case dfs.SportMLB:
+		return "Baseball"
+	default:
+		return ""
+	}
+}
