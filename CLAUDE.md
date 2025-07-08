@@ -208,6 +208,7 @@ Key environment variables (see `.env.example`):
 - `SIMULATION_WORKERS`: Parallel simulation workers (default: 4)
 - `BALLDONTLIE_API_KEY`: NBA data API key
 - `THESPORTSDB_API_KEY`: Sports data API key
+- `RAPIDAPI_KEY`: RapidAPI Live Golf Data API key (Basic plan: 20 req/day)
 
 ### 🔄 Project Awareness & Context
 
@@ -239,6 +240,14 @@ Key environment variables (see `.env.example`):
 - Real-time lineup updates
 - Contest rules and constraints
 - Export formats (CSV for DraftKings/FanDuel)
+
+**Golf Data Provider (RapidAPI)**
+- Live tournament data and leaderboards
+- Player statistics and performance metrics
+- Aggressive caching for Basic plan (20 req/day limit)
+- Automatic fallback to ESPN Golf when API limit reached
+- Rate limit tracking with daily/monthly counters
+- Cache warming strategy for optimal API usage
 
 ### 📊 Database Setup
 
@@ -305,3 +314,8 @@ Key environment variables (see `.env.example`):
 - Increase `OPTIMIZATION_TIMEOUT` in `.env`
 - Reduce `MAX_LINEUPS` for faster results
 - Check Redis connection for caching issues
+
+### 📝 Development Notes
+
+- **Container/Logs Workflow**
+  - I'll test container/logs manually just tell me when to re-build/restart em

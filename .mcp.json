@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "brave-search": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "BSAZBhPN9GkvvOpPTjweJ1ZlzmyuXOd",
+        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        "NODE_PATH": "/opt/homebrew/lib/node_modules"
+      }
+    } ,
+    "postgres-reader": {
+      "command": "/Users/jstittsworth/.cargo/bin/cargo",
+      "args": ["run", "--bin", "mcp-server", "--manifest-path", "/Users/jstittsworth/MCP/Cargo.toml"],
+      "env": {
+        "RUST_LOG": "info",
+        "POSTGRES_HOST": "localhost",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_PASSWORD": "postgres",
+        "POSTGRES_DATABASE": "dfs_optimizer",
+        "DB_REQUIRE_SSL": "false",
+        "PATH": "/Users/jstittsworth/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+      }
+    }
+  }
+}
