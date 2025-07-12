@@ -31,16 +31,18 @@ type Config struct {
 	// Simulation
 	MaxSimulations    int `mapstructure:"MAX_SIMULATIONS"`
 	SimulationWorkers int `mapstructure:"SIMULATION_WORKERS"`
-	
+
 	// External APIs
-	ESPNRateLimit      int    `mapstructure:"ESPN_RATE_LIMIT"`
-	BallDontLieAPIKey  string `mapstructure:"BALLDONTLIE_API_KEY"`
-	DataFetchInterval  string `mapstructure:"DATA_FETCH_INTERVAL"`
-	
+	ESPNRateLimit     int    `mapstructure:"ESPN_RATE_LIMIT"`
+	BallDontLieAPIKey string `mapstructure:"BALLDONTLIE_API_KEY"`
+	TheSportsDBAPIKey string `mapstructure:"THESPORTSDB_API_KEY"`
+	RapidAPIKey       string `mapstructure:"RAPIDAPI_KEY"`
+	DataFetchInterval string `mapstructure:"DATA_FETCH_INTERVAL"`
+
 	// AI Integration
-	AnthropicAPIKey    string `mapstructure:"ANTHROPIC_API_KEY"`
-	AIRateLimit        int    `mapstructure:"AI_RATE_LIMIT"`
-	AICacheExpiration  int    `mapstructure:"AI_CACHE_EXPIRATION"`
+	AnthropicAPIKey   string `mapstructure:"ANTHROPIC_API_KEY"`
+	AIRateLimit       int    `mapstructure:"AI_RATE_LIMIT"`
+	AICacheExpiration int    `mapstructure:"AI_CACHE_EXPIRATION"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -62,9 +64,11 @@ func LoadConfig() (*Config, error) {
 	viper.SetDefault("SIMULATION_WORKERS", 4)
 	viper.SetDefault("ESPN_RATE_LIMIT", 10)
 	viper.SetDefault("BALLDONTLIE_API_KEY", "")
+	viper.SetDefault("THESPORTSDB_API_KEY", "4191544") // Free tier
+	viper.SetDefault("RAPIDAPI_KEY", "")
 	viper.SetDefault("DATA_FETCH_INTERVAL", "2h")
 	viper.SetDefault("ANTHROPIC_API_KEY", "")
-	viper.SetDefault("AI_RATE_LIMIT", 5) // requests per minute
+	viper.SetDefault("AI_RATE_LIMIT", 5)          // requests per minute
 	viper.SetDefault("AI_CACHE_EXPIRATION", 3600) // 1 hour in seconds
 
 	// Read from environment

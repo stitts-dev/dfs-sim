@@ -98,7 +98,43 @@ test_get_tournament() {
     fi
 }
 
-# Test 3: Create golf contest
+# Test 3: Tournament Schedule endpoint
+test_tournament_schedule() {
+    log_info "Testing tournament schedule endpoint..."
+    
+    RESPONSE=$(curl -s -X GET "$API_BASE/golf/tournaments/schedule")
+    
+    if echo "$RESPONSE" | jq -e '.tournaments' > /dev/null 2>&1; then
+        TOURNAMENT_COUNT=$(echo "$RESPONSE" | jq '.tournaments | length')
+        log_success "Tournament schedule returned $TOURNAMENT_COUNT tournaments"
+        
+        # Check schedule metadata
+        if echo "$RESPONSE" | jq -e '.year' > /dev/null 2>&1 && \
+           echo "$RESPONSE" | jq -e '.cached_at' > /dev/null 2>&1 && \
+           echo "$RESPONSE" | jq -e '.source' > /dev/null 2>&1; then
+            log_success "Tournament schedule includes all metadata"
+        else
+            log_error "Tournament schedule missing metadata"
+        fi
+        
+        # Check year filter
+        CURRENT_YEAR=$(date +%Y)
+        RESPONSE_WITH_YEAR=$(curl -s -X GET "$API_BASE/golf/tournaments/schedule?year=$CURRENT_YEAR")
+        if echo "$RESPONSE_WITH_YEAR" | jq -e '.year' > /dev/null 2>&1; then
+            RETURNED_YEAR=$(echo "$RESPONSE_WITH_YEAR" | jq -r '.year')
+            if [ "$RETURNED_YEAR" = "$CURRENT_YEAR" ]; then
+                log_success "Year filter working correctly"
+            else
+                log_error "Year filter returned wrong year: $RETURNED_YEAR"
+            fi
+        fi
+    else
+        log_error "Failed to get tournament schedule"
+        echo "$RESPONSE" | jq '.'
+    fi
+}
+
+# Test 4: Create golf contest
 test_create_contest() {
     log_info "Testing contest creation..."
     
@@ -315,6 +351,7 @@ main() {
     
     test_fetch_tournaments
     test_get_tournament
+    test_tournament_schedule
     test_create_contest
     test_get_players
     test_get_projections

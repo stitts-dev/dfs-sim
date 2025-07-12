@@ -16,9 +16,12 @@ import (
 	"github.com/jstittsworth/dfs-optimizer/internal/api"
 	"github.com/jstittsworth/dfs-optimizer/internal/api/handlers"
 	"github.com/jstittsworth/dfs-optimizer/internal/api/middleware"
+	"github.com/jstittsworth/dfs-optimizer/internal/dfs"
+	"github.com/jstittsworth/dfs-optimizer/internal/providers"
 	"github.com/jstittsworth/dfs-optimizer/internal/services"
 	"github.com/jstittsworth/dfs-optimizer/pkg/config"
 	"github.com/jstittsworth/dfs-optimizer/pkg/database"
+	"github.com/jstittsworth/dfs-optimizer/pkg/logger"
 )
 
 func main() {
@@ -28,12 +31,19 @@ func main() {
 		logrus.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Setup logging
+	// Initialize structured logger
+	structuredLogger := logger.InitLogger()
+	structuredLogger.WithFields(logrus.Fields{
+		"version":      "1.0.0",
+		"environment":  cfg.Env,
+		"database_url": cfg.DatabaseURL,
+		"redis_url":    cfg.RedisURL,
+	}).Info("Starting DFS Optimizer")
+
+	// Setup Gin mode
 	if cfg.IsDevelopment() {
-		logrus.SetLevel(logrus.DebugLevel)
 		gin.SetMode(gin.DebugMode)
 	} else {
-		logrus.SetLevel(logrus.InfoLevel)
 		gin.SetMode(gin.ReleaseMode)
 	}
 
@@ -60,23 +70,61 @@ func main() {
 	cacheService := services.NewCacheService(redisClient)
 	webSocketHub := services.NewWebSocketHub()
 	go webSocketHub.Run()
-	
+
 	// Initialize data providers
 	aggregator := services.NewDataAggregator(db, cacheService, logrus.StandardLogger(), cfg.BallDontLieAPIKey)
-	
+
+	// Initialize golf provider for tournament sync
+	var golfProvider interface {
+		GetCurrentTournament() (*providers.GolfTournamentData, error)
+		GetTournamentSchedule() ([]providers.GolfTournamentData, error)
+		GetPlayers(sport dfs.Sport, date string) ([]dfs.PlayerData, error)
+		GetPlayer(sport dfs.Sport, externalID string) (*dfs.PlayerData, error)
+		GetTeamRoster(sport dfs.Sport, teamID string) ([]dfs.PlayerData, error)
+	}
+	if cfg.RapidAPIKey != "" {
+		logrus.Info("Initializing RapidAPI Golf provider for tournament sync")
+		golfProvider = providers.NewRapidAPIGolfClient(cfg.RapidAPIKey, cacheService, logrus.StandardLogger())
+	} else {
+		logrus.Info("Initializing ESPN Golf provider for tournament sync")
+		golfProvider = providers.NewESPNGolfClient(cacheService, logrus.StandardLogger())
+	}
+
+	// Set golf provider in aggregator
+	aggregator.SetGolfProvider(golfProvider)
+
+	// Initialize golf tournament sync service
+	golfSyncService := services.NewGolfTournamentSyncService(db, golfProvider, logrus.StandardLogger())
+
 	// Parse fetch interval
 	fetchInterval, err := time.ParseDuration(cfg.DataFetchInterval)
 	if err != nil {
 		logrus.Warnf("Invalid fetch interval, using default 2h: %v", err)
 		fetchInterval = 2 * time.Hour
 	}
-	
+
 	// Initialize data fetcher
 	dataFetcher := services.NewDataFetcherService(db, cacheService, aggregator, logrus.StandardLogger(), fetchInterval)
+
+	// Set golf sync service in data fetcher for scheduled syncs
+	dataFetcher.SetGolfSyncService(golfSyncService)
+
 	if err := dataFetcher.Start(); err != nil {
 		logrus.Errorf("Failed to start data fetcher: %v", err)
 	}
 	defer dataFetcher.Stop()
+
+	// Initial sync of golf tournaments on startup
+	go func() {
+		// Wait a moment for services to fully initialize
+		time.Sleep(2 * time.Second)
+		logrus.Info("Running initial golf tournament sync...")
+		if err := golfSyncService.SyncAllActiveTournaments(); err != nil {
+			logrus.Errorf("Initial golf tournament sync failed: %v", err)
+		} else {
+			logrus.Info("Initial golf tournament sync completed")
+		}
+	}()
 
 	// Setup Gin router
 	router := gin.New()
