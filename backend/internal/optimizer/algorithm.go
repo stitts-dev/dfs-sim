@@ -6,7 +6,10 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jstittsworth/dfs-optimizer/internal/models"
+	"github.com/jstittsworth/dfs-optimizer/pkg/logger"
+	"github.com/sirupsen/logrus"
 )
 
 type OptimizeConfig struct {
@@ -47,17 +50,41 @@ type lineupCandidate struct {
 }
 
 func OptimizeLineups(players []models.Player, config OptimizeConfig) (*OptimizerResult, error) {
+	// Generate unique optimization ID for request tracing
+	optimizationID := uuid.New().String()
 	startTime := getCurrentTimeMs()
 	result := &OptimizerResult{}
 
+	// Initialize logger with optimization context
+	logger := logger.WithOptimizationContext(optimizationID, config.Contest.Sport, config.Contest.Platform)
+	logger.WithFields(logrus.Fields{
+		"total_players": len(players),
+		"salary_cap":    config.SalaryCap,
+		"num_lineups":   config.NumLineups,
+	}).Info("Starting optimization")
+
 	// Filter out excluded players
-	filteredPlayers := filterPlayers(players, config)
+	filteredPlayers := filterPlayers(players, config, logger)
+
+	if len(filteredPlayers) == 0 {
+		return nil, fmt.Errorf("no players available after filtering")
+	}
 
 	// Organize players by position
-	playersByPosition := organizeByPosition(filteredPlayers)
+	playersByPosition := organizeByPosition(filteredPlayers, logger)
 
 	// Generate all valid lineup combinations
-	validLineups := generateValidLineups(playersByPosition, config)
+	validLineups := generateValidLineups(playersByPosition, config, logger)
+
+	logger.WithFields(logrus.Fields{
+		"valid_lineups": len(validLineups),
+	}).Debug("Lineup generation completed")
+
+	if len(validLineups) == 0 {
+		// Provide detailed error message
+		minSalary := int(float64(config.SalaryCap) * 0.95)
+		return nil, fmt.Errorf("no valid lineups could be generated - check if there are enough players at each position with salaries that fit within the cap ($%d-$%d)", minSalary, config.SalaryCap)
+	}
 
 	// Sort by projected points (with correlation bonus if enabled)
 	sort.Slice(validLineups, func(i, j int) bool {
@@ -89,23 +116,37 @@ func OptimizeLineups(players []models.Player, config OptimizeConfig) (*Optimizer
 	return result, nil
 }
 
-func filterPlayers(players []models.Player, config OptimizeConfig) []models.Player {
+func filterPlayers(players []models.Player, config OptimizeConfig, logger *logrus.Entry) []models.Player {
 	excludeMap := make(map[uint]bool)
 	for _, id := range config.ExcludedPlayers {
 		excludeMap[id] = true
 	}
 
 	filtered := make([]models.Player, 0, len(players))
+	excludedCount := 0
+	injuredCount := 0
+
 	for _, player := range players {
-		if !excludeMap[player.ID] && !player.IsInjured {
+		if excludeMap[player.ID] {
+			excludedCount++
+		} else if player.IsInjured {
+			injuredCount++
+		} else {
 			filtered = append(filtered, player)
 		}
 	}
 
+	logger.WithFields(logrus.Fields{
+		"total_players":   len(players),
+		"excluded_count":  excludedCount,
+		"injured_count":   injuredCount,
+		"available_count": len(filtered),
+	}).Debug("Player filtering complete")
+
 	return filtered
 }
 
-func organizeByPosition(players []models.Player) map[string][]models.Player {
+func organizeByPosition(players []models.Player, logger *logrus.Entry) map[string][]models.Player {
 	byPosition := make(map[string][]models.Player)
 	for _, player := range players {
 		byPosition[player.Position] = append(byPosition[player.Position], player)
@@ -120,19 +161,150 @@ func organizeByPosition(players []models.Player) map[string][]models.Player {
 		})
 	}
 
+	// Log player organization stats
+	positionCounts := make(map[string]int)
+	topPlayers := make(map[string][]string)
+	for pos, players := range byPosition {
+		positionCounts[pos] = len(players)
+		// Get top 3 player names for debug logging
+		topPlayerNames := make([]string, 0, 3)
+		for i, p := range players {
+			if i < 3 {
+				topPlayerNames = append(topPlayerNames, fmt.Sprintf("%s($%d)", p.Name, p.Salary))
+			}
+		}
+		topPlayers[pos] = topPlayerNames
+	}
+	logger.WithFields(logrus.Fields{
+		"position_counts": positionCounts,
+		"top_players":     topPlayers,
+	}).Debug("Players organized by position")
+
 	return byPosition
 }
 
-func generateValidLineups(playersByPosition map[string][]models.Player, config OptimizeConfig) []lineupCandidate {
+func generateValidLineups(playersByPosition map[string][]models.Player, config OptimizeConfig, logger *logrus.Entry) []lineupCandidate {
 	var validLineups []lineupCandidate
-	requirements := config.Contest.PositionRequirements
+
+	// Early validation
+	if config.Contest == nil {
+		logger.Error("No contest provided to optimizer")
+		return []lineupCandidate{}
+	}
+
+	// Get position slots for this sport/platform
+	slots := GetPositionSlots(config.Contest.Sport, config.Contest.Platform)
+	if len(slots) == 0 {
+		logger.WithFields(logrus.Fields{
+			"sport":    config.Contest.Sport,
+			"platform": config.Contest.Platform,
+		}).Error("No position slots found for contest")
+		return []lineupCandidate{}
+	}
+
+	// Log position slots for debugging
+	slotInfo := make([]map[string]interface{}, len(slots))
+	for i, slot := range slots {
+		slotInfo[i] = map[string]interface{}{
+			"index":             i,
+			"slot_name":         slot.SlotName,
+			"allowed_positions": slot.AllowedPositions,
+		}
+	}
+	logger.WithFields(logrus.Fields{
+		"total_slots":  len(slots),
+		"slot_details": slotInfo,
+	}).Debug("Position slots loaded")
+
+	// Validate player availability for each slot
+	for i, slot := range slots {
+		hasPlayers := false
+		for _, pos := range slot.AllowedPositions {
+			if len(playersByPosition[pos]) > 0 {
+				hasPlayers = true
+				break
+			}
+		}
+		if !hasPlayers {
+			logger.WithFields(logrus.Fields{
+				"slot_index":        i,
+				"slot_name":         slot.SlotName,
+				"allowed_positions": slot.AllowedPositions,
+			}).Warn("No players available for slot")
+		}
+	}
+
+	// Limit generation to avoid memory issues
+	maxLineups := config.NumLineups * 100
+	if maxLineups > 10000 {
+		maxLineups = 10000
+	}
 
 	// Use recursive backtracking to generate lineups
-	var backtrack func(current *lineupCandidate, positionOrder []string, posIndex int)
+	var backtrack func(current *lineupCandidate, slotIndex int, usedPlayers map[uint]bool)
 
-	backtrack = func(current *lineupCandidate, positionOrder []string, posIndex int) {
-		// Base case: all positions filled
-		if posIndex >= len(positionOrder) {
+	backtrack = func(current *lineupCandidate, slotIndex int, usedPlayers map[uint]bool) {
+		// Log backtrack start for first slot only
+		if slotIndex == 0 {
+			logger.WithFields(logrus.Fields{
+				"initial_players": len(current.players),
+				"initial_salary":  current.totalSalary,
+				"max_lineups":     maxLineups,
+			}).Debug("Starting backtrack algorithm")
+		}
+
+		// Skip slots that are already filled (from locked players)
+		for slotIndex < len(slots) && len(current.players) > slotIndex {
+			// Check if this slot is already filled
+			slotFilled := false
+			for _, player := range current.players {
+				if pos, ok := current.playerPositions[player.ID]; ok && pos == slots[slotIndex].SlotName {
+					slotFilled = true
+					break
+				}
+			}
+			if slotFilled {
+				slotIndex++
+			} else {
+				break
+			}
+		}
+
+		// Stop if we've found enough lineups
+		if len(validLineups) >= maxLineups {
+			return
+		}
+
+		// Base case: all slots filled
+		if slotIndex >= len(slots) {
+			logger.WithFields(logrus.Fields{
+				"lineup_players": len(current.players),
+				"total_salary":   current.totalSalary,
+				"salary_cap":     config.SalaryCap,
+			}).Debug("Checking lineup validity")
+
+			// Check if all locked players are included
+			if len(config.LockedPlayers) > 0 {
+				hasAllLocked := true
+				for _, lockedID := range config.LockedPlayers {
+					found := false
+					for _, player := range current.players {
+						if player.ID == lockedID {
+							found = true
+							break
+						}
+					}
+					if !found {
+						hasAllLocked = false
+						break
+					}
+				}
+				if !hasAllLocked {
+					logger.Debug("Lineup missing locked players")
+					return
+				}
+			}
+
 			if isValidLineup(current, config) {
 				// Create a copy and add to results
 				lineupCopy := *current
@@ -144,51 +316,128 @@ func generateValidLineups(playersByPosition map[string][]models.Player, config O
 					lineupCopy.playerPositions[k] = v
 				}
 				validLineups = append(validLineups, lineupCopy)
+				logger.WithFields(logrus.Fields{
+					"lineup_number":    len(validLineups),
+					"projected_points": current.projectedPoints,
+					"salary_used":      current.totalSalary,
+				}).Debug("Found valid lineup")
+			} else {
+				minSalary := int(float64(config.SalaryCap) * 0.95)
+				logger.WithFields(logrus.Fields{
+					"salary_used": current.totalSalary,
+					"salary_cap":  config.SalaryCap,
+					"min_salary":  minSalary,
+				}).Debug("Lineup validation failed")
 			}
 			return
 		}
 
-		position := positionOrder[posIndex]
-		requiredCount := requirements[position]
+		slot := slots[slotIndex]
+		logger.WithFields(logrus.Fields{
+			"slot_index":        slotIndex,
+			"slot_name":         slot.SlotName,
+			"allowed_positions": slot.AllowedPositions,
+		}).Debug("Processing slot")
 
-		// Handle flex positions
-		if position == "UTIL" || position == "FLEX" {
-			eligiblePlayers := getFlexEligiblePlayers(playersByPosition, position, current)
-			generateFlexCombinations(current, eligiblePlayers, requiredCount, positionOrder, posIndex, config, &backtrack)
-			return
-		}
+		// Try each allowed position for this slot
+		playersFound := false
+		for _, allowedPos := range slot.AllowedPositions {
+			players := playersByPosition[allowedPos]
 
-		// Regular positions
-		players := playersByPosition[position]
-		generatePositionCombinations(current, players, position, requiredCount, positionOrder, posIndex, config, &backtrack)
-	}
+			if len(players) == 0 {
+				logger.WithFields(logrus.Fields{
+					"position":   allowedPos,
+					"slot_index": slotIndex,
+					"slot_name":  slot.SlotName,
+				}).Debug("No players available for position")
+				continue
+			}
 
-	// Initialize and start backtracking
-	positionOrder := getPositionOrder(requirements)
-	initial := &lineupCandidate{
-		players:         make([]models.Player, 0, 9),
-		positions:       make(map[string][]models.Player),
-		playerPositions: make(map[uint]string),
-	}
+			logger.WithFields(logrus.Fields{
+				"position":     allowedPos,
+				"player_count": len(players),
+				"slot_index":   slotIndex,
+			}).Debug("Players found for position")
+			playersFound = true
 
-	// Add locked players first
-	for _, playerID := range config.LockedPlayers {
-		for _, playerList := range playersByPosition {
-			for _, player := range playerList {
-				if player.ID == playerID {
-					initial.players = append(initial.players, player)
-					initial.totalSalary += player.Salary
-					initial.projectedPoints += player.ProjectedPoints
-					initial.positions[player.Position] = append(initial.positions[player.Position], player)
-					initial.playerPositions[player.ID] = player.Position
+			// Try each player that can fill this slot
+			playersTried := 0
+			for _, player := range players {
+				// Skip if player already used
+				if usedPlayers[player.ID] {
+					continue
+				}
+
+				// Check salary cap
+				if current.totalSalary+player.Salary > config.SalaryCap {
+					continue
+				}
+
+				playersTried++
+
+				// Add player to lineup
+				current.players = append(current.players, player)
+				current.totalSalary += player.Salary
+				current.projectedPoints += player.ProjectedPoints
+				current.playerPositions[player.ID] = slot.SlotName
+				usedPlayers[player.ID] = true
+
+				// Recurse to fill next slot
+				backtrack(current, slotIndex+1, usedPlayers)
+
+				// Backtrack
+				current.players = current.players[:len(current.players)-1]
+				current.totalSalary -= player.Salary
+				current.projectedPoints -= player.ProjectedPoints
+				delete(current.playerPositions, player.ID)
+				usedPlayers[player.ID] = false
+
+				// Limit how many players we try per position to avoid exponential explosion
+				if playersTried >= 10 && len(validLineups) > 0 {
 					break
 				}
 			}
 		}
+
+		if !playersFound {
+			logger.WithFields(logrus.Fields{
+				"slot_index": slotIndex,
+				"slot_name":  slot.SlotName,
+			}).Debug("No players found for any allowed position")
+		}
 	}
 
-	backtrack(initial, positionOrder, 0)
+	// Initialize lineup
+	initial := &lineupCandidate{
+		players:         make([]models.Player, 0, len(slots)),
+		positions:       make(map[string][]models.Player),
+		playerPositions: make(map[uint]string),
+	}
 
+	usedPlayers := make(map[uint]bool)
+
+	// For locked players, we'll track them but let the backtracking algorithm handle placement
+	lockedPlayerSet := make(map[uint]bool)
+	for _, lockedID := range config.LockedPlayers {
+		lockedPlayerSet[lockedID] = true
+	}
+	if len(config.LockedPlayers) > 0 {
+		logger.WithFields(logrus.Fields{
+			"locked_player_ids": config.LockedPlayers,
+		}).Debug("Locked players configured")
+	}
+
+	// Start backtracking
+	logger.WithFields(logrus.Fields{
+		"locked_players_count": len(config.LockedPlayers),
+		"max_lineups":          maxLineups,
+	}).Debug("Starting backtracking algorithm")
+	backtrack(initial, 0, usedPlayers)
+
+	logger.WithFields(logrus.Fields{
+		"valid_lineups": len(validLineups),
+		"max_lineups":   maxLineups,
+	}).Info("Lineup generation completed")
 	return validLineups
 }
 
@@ -247,6 +496,9 @@ func generatePositionCombinations(current *lineupCandidate, players []models.Pla
 		(*backtrack)(current, positionOrder, posIndex+1)
 
 		// Remove players (backtrack)
+		for _, player := range combo {
+			delete(current.playerPositions, player.ID)
+		}
 		current.players = current.players[:len(current.players)-len(combo)]
 		current.positions[position] = current.positions[position][:len(current.positions[position])-len(combo)]
 		current.totalSalary -= additionalSalary
@@ -296,6 +548,9 @@ func generateFlexCombinations(current *lineupCandidate, eligiblePlayers []models
 		(*backtrack)(current, positionOrder, posIndex+1)
 
 		// Remove players
+		for _, player := range combo {
+			delete(current.playerPositions, player.ID)
+		}
 		current.players = current.players[:len(current.players)-len(combo)]
 		current.totalSalary -= additionalSalary
 		current.projectedPoints -= additionalPoints + calculateCorrelationBonus(current.players, config.CorrelationWeight)
@@ -333,18 +588,14 @@ func getFlexEligiblePlayers(playersByPosition map[string][]models.Player, flexTy
 }
 
 func isValidLineup(lineup *lineupCandidate, config OptimizeConfig) bool {
-	// Check total players
-	totalRequired := 0
-	for _, count := range config.Contest.PositionRequirements {
-		totalRequired += count
-	}
-
-	if len(lineup.players) != totalRequired {
+	// Check salary cap
+	if lineup.totalSalary > config.SalaryCap {
 		return false
 	}
 
-	// Check salary cap
-	if lineup.totalSalary > config.SalaryCap {
+	// Minimum salary usage (95% of cap)
+	minSalary := int(float64(config.SalaryCap) * 0.95)
+	if lineup.totalSalary < minSalary {
 		return false
 	}
 
@@ -472,6 +723,23 @@ func hasPlayer(players []models.Player, playerID uint) bool {
 		}
 	}
 	return false
+}
+
+func isPlayerLocked(playerID uint, lockedPlayers []uint) bool {
+	for _, id := range lockedPlayers {
+		if id == playerID {
+			return true
+		}
+	}
+	return false
+}
+
+func mapToSlice(playerMap map[uint]models.Player) []models.Player {
+	players := make([]models.Player, 0, len(playerMap))
+	for _, player := range playerMap {
+		players = append(players, player)
+	}
+	return players
 }
 
 func getPositionOrder(requirements models.PositionRequirements) []string {

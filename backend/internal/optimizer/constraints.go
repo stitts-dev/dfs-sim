@@ -152,13 +152,13 @@ func (lc *LineupConstraints) setupGolfConstraints(platform string) {
 	lc.PositionConstraints = map[string]PositionConstraint{
 		"G": {Position: "G", MinRequired: 6, MaxAllowed: 6}, // G for Golfer
 	}
-	
+
 	// Golf-specific adjustments
-	lc.MaxPlayersPerTeam = 6     // In golf, "team" represents country
-	lc.MinUniqueTeams = 1        // Can have all players from same country
-	lc.MinUniqueGames = 1        // All players in same tournament
-	lc.MaxPlayersPerGame = 6     // All players in same tournament
-	
+	lc.MaxPlayersPerTeam = 6 // In golf, "team" represents country
+	lc.MinUniqueTeams = 1    // Can have all players from same country
+	lc.MinUniqueGames = 1    // All players in same tournament
+	lc.MaxPlayersPerGame = 6 // All players in same tournament
+
 	// Platform-specific salary caps
 	if platform == "draftkings" {
 		lc.SalaryCap = 50000

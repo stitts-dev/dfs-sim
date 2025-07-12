@@ -203,7 +203,7 @@ func (sb *StackBuilder) getGolfStacks() []Stack {
 	stacks := make([]Stack, 0)
 
 	// Golf stacking is unique - focus on ownership and correlation strategies
-	
+
 	// Country stacks (2-3 players from same country)
 	countryStacks := sb.buildGolfCountryStacks()
 	stacks = append(stacks, countryStacks...)
@@ -533,7 +533,7 @@ func (sb *StackBuilder) buildGolfOwnershipStacks() []Stack {
 	// Separate high and low ownership players
 	highOwned := make([]models.Player, 0)
 	lowOwned := make([]models.Player, 0)
-	
+
 	for _, player := range sb.players {
 		if player.Position == "G" {
 			if player.Ownership > 20 {
@@ -572,7 +572,7 @@ func (sb *StackBuilder) buildGolfValueStacks() []Stack {
 	// Separate expensive and cheap players
 	stars := make([]models.Player, 0)
 	scrubs := make([]models.Player, 0)
-	
+
 	for _, player := range sb.players {
 		if player.Position == "G" {
 			if player.Salary >= 10000 {
@@ -606,9 +606,9 @@ func (sb *StackBuilder) buildGolfValueStacks() []Stack {
 							ProjectedPoints: star.ProjectedPoints + affordableScrubs[i].ProjectedPoints + affordableScrubs[j].ProjectedPoints,
 						}
 						// Value correlation bonus
-						valueScore := (star.ProjectedPoints/float64(star.Salary)*1000 + 
-									  affordableScrubs[i].ProjectedPoints/float64(affordableScrubs[i].Salary)*1000 +
-									  affordableScrubs[j].ProjectedPoints/float64(affordableScrubs[j].Salary)*1000) / 3.0
+						valueScore := (star.ProjectedPoints/float64(star.Salary)*1000 +
+							affordableScrubs[i].ProjectedPoints/float64(affordableScrubs[i].Salary)*1000 +
+							affordableScrubs[j].ProjectedPoints/float64(affordableScrubs[j].Salary)*1000) / 3.0
 						stack.CorrelationScore = valueScore * 0.1
 						stacks = append(stacks, stack)
 					}
