@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -43,6 +44,14 @@ type Config struct {
 	AnthropicAPIKey   string `mapstructure:"ANTHROPIC_API_KEY"`
 	AIRateLimit       int    `mapstructure:"AI_RATE_LIMIT"`
 	AICacheExpiration int    `mapstructure:"AI_CACHE_EXPIRATION"`
+
+	// Startup Configuration
+	SkipInitialGolfSync         bool          `mapstructure:"SKIP_INITIAL_GOLF_SYNC"`
+	SkipInitialDataFetch        bool          `mapstructure:"SKIP_INITIAL_DATA_FETCH"`
+	SkipInitialContestDiscovery bool          `mapstructure:"SKIP_INITIAL_CONTEST_DISCOVERY"`
+	StartupDelaySeconds         int           `mapstructure:"STARTUP_DELAY_SECONDS"`
+	ExternalAPITimeout          time.Duration `mapstructure:"EXTERNAL_API_TIMEOUT"`
+	CircuitBreakerThreshold     int           `mapstructure:"CIRCUIT_BREAKER_THRESHOLD"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -70,6 +79,14 @@ func LoadConfig() (*Config, error) {
 	viper.SetDefault("ANTHROPIC_API_KEY", "")
 	viper.SetDefault("AI_RATE_LIMIT", 5)          // requests per minute
 	viper.SetDefault("AI_CACHE_EXPIRATION", 3600) // 1 hour in seconds
+
+	// Startup optimization defaults - maintain backward compatibility
+	viper.SetDefault("SKIP_INITIAL_GOLF_SYNC", false)         // Keep current behavior by default
+	viper.SetDefault("SKIP_INITIAL_DATA_FETCH", false)        // Keep current behavior by default
+	viper.SetDefault("SKIP_INITIAL_CONTEST_DISCOVERY", false) // Keep current behavior by default
+	viper.SetDefault("STARTUP_DELAY_SECONDS", 0)              // No delay by default
+	viper.SetDefault("EXTERNAL_API_TIMEOUT", "10s")           // Conservative timeout
+	viper.SetDefault("CIRCUIT_BREAKER_THRESHOLD", 5)          // Fail after 5 consecutive failures
 
 	// Read from environment
 	viper.AutomaticEnv()

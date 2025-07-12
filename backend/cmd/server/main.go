@@ -109,22 +109,33 @@ func main() {
 	// Set golf sync service in data fetcher for scheduled syncs
 	dataFetcher.SetGolfSyncService(golfSyncService)
 
-	if err := dataFetcher.Start(); err != nil {
-		logrus.Errorf("Failed to start data fetcher: %v", err)
-	}
-	defer dataFetcher.Stop()
+	// Initialize circuit breaker service
+	circuitBreakerService := services.NewCircuitBreakerService(
+		cfg.CircuitBreakerThreshold,
+		cfg.ExternalAPITimeout,
+		logrus.StandardLogger(),
+	)
 
-	// Initial sync of golf tournaments on startup
-	go func() {
-		// Wait a moment for services to fully initialize
-		time.Sleep(2 * time.Second)
-		logrus.Info("Running initial golf tournament sync...")
-		if err := golfSyncService.SyncAllActiveTournaments(); err != nil {
-			logrus.Errorf("Initial golf tournament sync failed: %v", err)
-		} else {
-			logrus.Info("Initial golf tournament sync completed")
-		}
-	}()
+	// Initialize startup manager for coordinated startup
+	startupManager := services.NewStartupManager(
+		cfg,
+		logrus.StandardLogger(),
+		dataFetcher,
+		golfSyncService,
+		circuitBreakerService,
+	)
+
+	// Start critical services (non-blocking)
+	if err := startupManager.StartCriticalServices(); err != nil {
+		logrus.Fatalf("Failed to start critical services: %v", err)
+	}
+
+	// Start background initialization (non-blocking)
+	startupManager.StartBackgroundInitialization()
+
+	// Defer cleanup
+	defer dataFetcher.Stop()
+	defer startupManager.Shutdown()
 
 	// Setup Gin router
 	router := gin.New()
@@ -132,17 +143,26 @@ func main() {
 	router.Use(middleware.Logger())
 	router.Use(middleware.CORS(cfg.CorsOrigins))
 
-	// Health check endpoint
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status": "ok",
-			"time":   time.Now().UTC(),
-		})
-	})
+	// Initialize health and admin handlers
+	healthHandler := handlers.NewHealthHandler(startupManager)
+	adminHandler := handlers.NewAdminHandler(startupManager)
+
+	// Health check endpoints
+	router.GET("/health", healthHandler.GetHealth)
+	router.GET("/ready", healthHandler.GetReady)
+	router.GET("/startup-status", healthHandler.GetStartupStatus)
 
 	// Setup API routes under /api/v1
 	apiV1 := router.Group("/api/v1")
 	api.SetupRoutes(apiV1, db, cacheService, webSocketHub, cfg, aggregator, dataFetcher)
+
+	// Admin endpoints under /api/v1/admin
+	adminGroup := apiV1.Group("/admin")
+	{
+		adminGroup.GET("/status", adminHandler.GetSystemStatus)
+		adminGroup.POST("/sync/golf", adminHandler.TriggerGolfSync)
+		adminGroup.POST("/sync/data", adminHandler.TriggerDataFetch)
+	}
 
 	// Setup WebSocket endpoint at root level (not under /api/v1)
 	wsHandler := handlers.NewWebSocketHandler(webSocketHub, cfg.JWTSecret)

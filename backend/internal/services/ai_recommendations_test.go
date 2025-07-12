@@ -68,12 +68,12 @@ func TestFuzzyPlayerMatching(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		aiName         string
-		aiTeam         string
-		expectedID     uint
-		minConfidence  float64
-		shouldMatch    bool
+		name          string
+		aiName        string
+		aiTeam        string
+		expectedID    uint
+		minConfidence float64
+		shouldMatch   bool
 	}{
 		{
 			name:          "Exact match",
@@ -128,7 +128,7 @@ func TestFuzzyPlayerMatching(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			player, confidence := service.fuzzyMatchPlayer(tt.aiName, tt.aiTeam, players)
-			
+
 			if tt.shouldMatch {
 				assert.NotNil(t, player, "Expected to find a matching player")
 				assert.Equal(t, tt.expectedID, player.ID, "Player ID should match")
@@ -387,10 +387,10 @@ func TestPlayerFormCalculation(t *testing.T) {
 	}
 
 	tests := []struct {
-		name             string
-		projectedPoints  float64
-		salary           int
-		expectedForm     string
+		name            string
+		projectedPoints float64
+		salary          int
+		expectedForm    string
 	}{
 		{
 			name:            "Hot player",
@@ -437,9 +437,9 @@ func TestGolfPromptGeneration(t *testing.T) {
 	}
 
 	req := PlayerRecommendationRequest{
-		Sport:       "golf",
-		ContestType: "GPP",
-		OptimizeFor: "ceiling",
+		Sport:        "golf",
+		ContestType:  "GPP",
+		OptimizeFor:  "ceiling",
 		BeginnerMode: true,
 	}
 

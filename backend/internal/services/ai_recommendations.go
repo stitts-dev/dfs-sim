@@ -26,10 +26,10 @@ import (
 type CircuitBreaker struct {
 	failureCount    int
 	lastFailureTime time.Time
-	state          string // "closed", "open", "half-open"
-	mutex          sync.RWMutex
-	threshold      int
-	timeout        time.Duration
+	state           string // "closed", "open", "half-open"
+	mutex           sync.RWMutex
+	threshold       int
+	timeout         time.Duration
 }
 
 // RecommendationCacheKey represents the cache key structure
@@ -68,14 +68,14 @@ type AnthropicResponse struct {
 
 // AIRecommendationService handles AI-powered player recommendations
 type AIRecommendationService struct {
-	db            *database.DB
-	config        *config.Config
-	cache         *CacheService
-	apiClient     *http.Client
-	logger        *logrus.Logger
+	db             *database.DB
+	config         *config.Config
+	cache          *CacheService
+	apiClient      *http.Client
+	logger         *logrus.Logger
 	circuitBreaker *CircuitBreaker
 	requestCounts  map[int]int // userID -> request count for rate limiting
-	mutex         sync.RWMutex
+	mutex          sync.RWMutex
 }
 
 // PlayerRecommendationRequest represents a request for player recommendations
@@ -286,7 +286,7 @@ func (s *AIRecommendationService) buildRecommendationPrompt(req PlayerRecommenda
 	if strings.ToLower(req.Sport) == "golf" {
 		return s.buildGolfRecommendationPrompt(req, contest, players)
 	}
-	
+
 	var prompt strings.Builder
 
 	prompt.WriteString(fmt.Sprintf("You are a DFS (Daily Fantasy Sports) expert helping with %s lineup optimization.\n\n", req.Sport))
@@ -562,17 +562,17 @@ func (s *AIRecommendationService) calculateAverageConfidence(recommendations []P
 func (s *AIRecommendationService) checkRateLimit(ctx context.Context, userID int) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	
+
 	// Reset counts every hour
 	key := fmt.Sprintf("ai_rate_limit:%d", userID)
 	var count int
 	s.cache.Get(ctx, key, &count)
-	
+
 	rateLimit := 10 // Default rate limit
 	if s.config.AIRateLimit > 0 {
 		rateLimit = s.config.AIRateLimit
 	}
-	
+
 	if count >= rateLimit {
 		s.logger.WithFields(logrus.Fields{
 			"user_id": userID,
@@ -581,11 +581,11 @@ func (s *AIRecommendationService) checkRateLimit(ctx context.Context, userID int
 		}).Warn("AI rate limit exceeded")
 		return errors.New("AI rate limit exceeded, please try again later")
 	}
-	
+
 	// Increment count
 	count++
 	s.cache.Set(ctx, key, count, time.Hour)
-	
+
 	return nil
 }
 
@@ -598,7 +598,7 @@ func (s *AIRecommendationService) generateCacheKey(req PlayerRecommendationReque
 		OptimizeFor:     req.OptimizeFor,
 		Sport:           req.Sport,
 	}
-	
+
 	keyBytes, _ := json.Marshal(key)
 	hash := md5.Sum(keyBytes)
 	return fmt.Sprintf("ai_rec_v2:%d:%x", userID, hash)
@@ -609,12 +609,12 @@ func (s *AIRecommendationService) hashPositions(positions []string) string {
 	if len(positions) == 0 {
 		return "all"
 	}
-	
+
 	// Sort positions for consistent hashing
 	sorted := make([]string, len(positions))
 	copy(sorted, positions)
 	sort.Strings(sorted)
-	
+
 	return strings.Join(sorted, ",")
 }
 
@@ -622,34 +622,34 @@ func (s *AIRecommendationService) hashPositions(positions []string) string {
 func (s *AIRecommendationService) fuzzyMatchPlayer(aiName, aiTeam string, players []models.Player) (*models.Player, float64) {
 	bestMatch := (*models.Player)(nil)
 	bestScore := 0.0
-	
+
 	// Normalize inputs
 	aiNameNorm := strings.ToLower(strings.TrimSpace(aiName))
 	aiTeamNorm := s.normalizeTeam(strings.ToLower(strings.TrimSpace(aiTeam)))
-	
+
 	for i := range players {
 		player := &players[i]
 		playerNameNorm := strings.ToLower(strings.TrimSpace(player.Name))
 		playerTeamNorm := s.normalizeTeam(strings.ToLower(strings.TrimSpace(player.Team)))
-		
+
 		// Calculate name similarity
 		nameScore := s.calculateSimilarity(aiNameNorm, playerNameNorm)
-		
+
 		// Handle common name variations
 		nameScore = s.adjustForNameVariations(aiNameNorm, playerNameNorm, nameScore)
-		
+
 		// Calculate team similarity
 		teamScore := s.calculateSimilarity(aiTeamNorm, playerTeamNorm)
-		
+
 		// Combined score (name weighted more heavily)
 		combinedScore := (nameScore * 0.7) + (teamScore * 0.3)
-		
+
 		if combinedScore > bestScore && combinedScore > 0.6 {
 			bestScore = combinedScore
 			bestMatch = player
 		}
 	}
-	
+
 	return bestMatch, bestScore
 }
 
@@ -658,17 +658,17 @@ func (s *AIRecommendationService) calculateSimilarity(s1, s2 string) float64 {
 	if s1 == s2 {
 		return 1.0
 	}
-	
+
 	distance := s.levenshteinDistance(s1, s2)
 	maxLen := len(s1)
 	if len(s2) > maxLen {
 		maxLen = len(s2)
 	}
-	
+
 	if maxLen == 0 {
 		return 1.0
 	}
-	
+
 	return 1.0 - (float64(distance) / float64(maxLen))
 }
 
@@ -677,32 +677,32 @@ func (s *AIRecommendationService) levenshteinDistance(s1, s2 string) int {
 	r1, r2 := []rune(s1), []rune(s2)
 	rows := len(r1) + 1
 	cols := len(r2) + 1
-	
+
 	d := make([][]int, rows)
 	for i := range d {
 		d[i] = make([]int, cols)
 		d[i][0] = i
 	}
-	
+
 	for j := range d[0] {
 		d[0][j] = j
 	}
-	
+
 	for i := 1; i < rows; i++ {
 		for j := 1; j < cols; j++ {
 			cost := 0
 			if r1[i-1] != r2[j-1] {
 				cost = 1
 			}
-			
+
 			d[i][j] = min(
-				d[i-1][j]+1,    // deletion
-				d[i][j-1]+1,    // insertion
+				d[i-1][j]+1,      // deletion
+				d[i][j-1]+1,      // insertion
 				d[i-1][j-1]+cost, // substitution
 			)
 		}
 	}
-	
+
 	return d[rows-1][cols-1]
 }
 
@@ -723,12 +723,12 @@ func (s *AIRecommendationService) adjustForNameVariations(aiName, playerName str
 	if s.isInitialVariation(aiName, playerName) {
 		return math.Max(baseScore, 0.9)
 	}
-	
+
 	// Handle Jr., Sr., III variations
 	if s.isSuffixVariation(aiName, playerName) {
 		return math.Max(baseScore, 0.95)
 	}
-	
+
 	return baseScore
 }
 
@@ -736,14 +736,14 @@ func (s *AIRecommendationService) adjustForNameVariations(aiName, playerName str
 func (s *AIRecommendationService) isInitialVariation(name1, name2 string) bool {
 	parts1 := strings.Fields(name1)
 	parts2 := strings.Fields(name2)
-	
+
 	if len(parts1) != len(parts2) {
 		return false
 	}
-	
+
 	for i := range parts1 {
 		p1, p2 := parts1[i], parts2[i]
-		
+
 		// Check if one is an initial of the other
 		if len(p1) == 2 && strings.HasSuffix(p1, ".") && len(p2) > 2 {
 			if strings.ToLower(p1[:1]) != strings.ToLower(p2[:1]) {
@@ -757,14 +757,14 @@ func (s *AIRecommendationService) isInitialVariation(name1, name2 string) bool {
 			return false
 		}
 	}
-	
+
 	return true
 }
 
 // isSuffixVariation checks for Jr., Sr., III variations
 func (s *AIRecommendationService) isSuffixVariation(name1, name2 string) bool {
 	suffixes := []string{"jr.", "sr.", "jr", "sr", "ii", "iii", "iv"}
-	
+
 	for _, suffix := range suffixes {
 		if strings.HasSuffix(strings.ToLower(name1), suffix) && !strings.HasSuffix(strings.ToLower(name2), suffix) {
 			base1 := strings.TrimSpace(strings.TrimSuffix(strings.ToLower(name1), suffix))
@@ -779,7 +779,7 @@ func (s *AIRecommendationService) isSuffixVariation(name1, name2 string) bool {
 			}
 		}
 	}
-	
+
 	return false
 }
 
@@ -792,11 +792,11 @@ func (s *AIRecommendationService) normalizeTeam(team string) string {
 		"liv":           "liv golf",
 		"liv golf":      "liv",
 	}
-	
+
 	if normalized, exists := teamMappings[team]; exists {
 		return normalized
 	}
-	
+
 	return team
 }
 
@@ -806,14 +806,14 @@ func (s *AIRecommendationService) callAnthropicAPIWithCircuitBreaker(ctx context
 	if !s.canMakeAPICall() {
 		return nil, errors.New("circuit breaker is open - API temporarily unavailable")
 	}
-	
+
 	recommendations, err := s.callAnthropicAPI(ctx, prompt, beginnerMode)
-	
+
 	if err != nil {
 		s.recordAPIFailure()
 		return nil, err
 	}
-	
+
 	s.recordAPISuccess()
 	return recommendations, nil
 }
@@ -822,7 +822,7 @@ func (s *AIRecommendationService) callAnthropicAPIWithCircuitBreaker(ctx context
 func (s *AIRecommendationService) canMakeAPICall() bool {
 	s.circuitBreaker.mutex.RLock()
 	defer s.circuitBreaker.mutex.RUnlock()
-	
+
 	switch s.circuitBreaker.state {
 	case "closed":
 		return true
@@ -847,10 +847,10 @@ func (s *AIRecommendationService) canMakeAPICall() bool {
 func (s *AIRecommendationService) recordAPIFailure() {
 	s.circuitBreaker.mutex.Lock()
 	defer s.circuitBreaker.mutex.Unlock()
-	
+
 	s.circuitBreaker.failureCount++
 	s.circuitBreaker.lastFailureTime = time.Now()
-	
+
 	if s.circuitBreaker.failureCount >= s.circuitBreaker.threshold {
 		s.circuitBreaker.state = "open"
 		s.logger.Warn("Circuit breaker opened due to API failures")
@@ -861,7 +861,7 @@ func (s *AIRecommendationService) recordAPIFailure() {
 func (s *AIRecommendationService) recordAPISuccess() {
 	s.circuitBreaker.mutex.Lock()
 	defer s.circuitBreaker.mutex.Unlock()
-	
+
 	s.circuitBreaker.failureCount = 0
 	if s.circuitBreaker.state == "half-open" {
 		s.circuitBreaker.state = "closed"
@@ -872,27 +872,27 @@ func (s *AIRecommendationService) recordAPISuccess() {
 // buildGolfRecommendationPrompt constructs golf-specific prompts with DFS strategies
 func (s *AIRecommendationService) buildGolfRecommendationPrompt(req PlayerRecommendationRequest, contest models.Contest, players []models.Player) string {
 	var prompt strings.Builder
-	
+
 	prompt.WriteString("You are a Golf DFS expert analyzing players using advanced golf-specific strategies.\n\n")
-	
+
 	prompt.WriteString("GOLF DFS STRATEGY PRIORITIES:\n")
 	prompt.WriteString("1. Strokes Gained Analysis:\n")
 	prompt.WriteString("   - Off the Tee: Driving distance and accuracy\n")
 	prompt.WriteString("   - Approach: GIR percentage and proximity to pin\n")
 	prompt.WriteString("   - Around Green: Scrambling and up/down percentage\n")
 	prompt.WriteString("   - Putting: Putts per GIR and overall putting average\n\n")
-	
+
 	prompt.WriteString("2. Course Fit Assessment:\n")
 	prompt.WriteString("   - Course length vs player driving distance\n")
 	prompt.WriteString("   - Course difficulty vs player's scrambling ability\n")
 	prompt.WriteString("   - Green speed vs putting statistics\n")
 	prompt.WriteString("   - Weather conditions impact\n\n")
-	
+
 	prompt.WriteString("3. Recent Form & Cut Probability:\n")
 	prompt.WriteString("   - Last 5 tournament finishes\n")
 	prompt.WriteString("   - Missed cuts in similar course conditions\n")
 	prompt.WriteString("   - Current world ranking trends\n\n")
-	
+
 	prompt.WriteString("4. Tournament Strategy:\n")
 	if req.ContestType == "GPP" {
 		prompt.WriteString("   - GPP: High ceiling players with low ownership\n")
@@ -904,22 +904,22 @@ func (s *AIRecommendationService) buildGolfRecommendationPrompt(req PlayerRecomm
 		prompt.WriteString("   - Prioritize players who rarely miss cuts\n")
 	}
 	prompt.WriteString("   - Country/sponsor correlations for stacking\n\n")
-	
+
 	prompt.WriteString(fmt.Sprintf("Contest: %s\n", contest.Name))
 	prompt.WriteString(fmt.Sprintf("Optimization Goal: %s\n", req.OptimizeFor))
 	prompt.WriteString(fmt.Sprintf("Remaining Budget: $%.2f\n", req.RemainingBudget))
 	prompt.WriteString(fmt.Sprintf("Positions Needed: %v\n\n", req.PositionsNeeded))
-	
+
 	if req.BeginnerMode {
 		prompt.WriteString("BEGINNER MODE: Provide educational explanations about golf DFS strategy.\n\n")
 	}
-	
+
 	prompt.WriteString("Available Players:\n")
 	for _, player := range players {
 		prompt.WriteString(fmt.Sprintf("- %s (%s): $%d, Proj: %.1f pts, Own: %.1f%%, Form: %s\n",
 			player.Name, player.Team, player.Salary, player.ProjectedPoints, player.Ownership, s.getPlayerForm(player)))
 	}
-	
+
 	prompt.WriteString("\nAnalyze each player considering:\n")
 	prompt.WriteString("- Current form and recent performance trends\n")
 	prompt.WriteString("- Historical performance at similar course types\n")
@@ -927,7 +927,7 @@ func (s *AIRecommendationService) buildGolfRecommendationPrompt(req PlayerRecomm
 	prompt.WriteString("- Cut probability and floor/ceiling projections\n")
 	prompt.WriteString("- Ownership projections for tournament differentiation\n")
 	prompt.WriteString("- Weather and course condition adjustments\n\n")
-	
+
 	prompt.WriteString("CRITICAL: Return ONLY valid JSON array. Use exact player names as shown above.\n")
 	prompt.WriteString("Required JSON format:\n")
 	prompt.WriteString(`[{
@@ -942,7 +942,7 @@ func (s *AIRecommendationService) buildGolfRecommendationPrompt(req PlayerRecomm
 		"stack_with": ["Country teammate", "Sponsor teammate"],
 		"avoid_with": ["Contrarian play"]
 	}]`)
-	
+
 	return prompt.String()
 }
 
@@ -950,7 +950,7 @@ func (s *AIRecommendationService) buildGolfRecommendationPrompt(req PlayerRecomm
 func (s *AIRecommendationService) getPlayerForm(player models.Player) string {
 	// Simplified form calculation based on projected points vs salary
 	valueRatio := player.ProjectedPoints / float64(player.Salary) * 1000
-	
+
 	if valueRatio > 5.0 {
 		return "Hot"
 	} else if valueRatio > 4.0 {
