@@ -1,7 +1,6 @@
 import React from 'react'
 import { GolfPlayer } from '@/types/golf'
 import { formatCurrency, formatNumber, cn } from '@/lib/utils'
-import golfAPI from '@/services/golf'
 
 interface GolfPlayerCardProps {
   player: GolfPlayer

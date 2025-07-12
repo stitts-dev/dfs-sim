@@ -1,15 +1,18 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jstittsworth/dfs-optimizer/internal/dfs"
 	"github.com/jstittsworth/dfs-optimizer/internal/models"
 	"github.com/jstittsworth/dfs-optimizer/internal/providers"
 	"github.com/jstittsworth/dfs-optimizer/internal/services"
+	"github.com/jstittsworth/dfs-optimizer/pkg/config"
 	"github.com/jstittsworth/dfs-optimizer/pkg/database"
 	"github.com/jstittsworth/dfs-optimizer/pkg/utils"
 	"github.com/sirupsen/logrus"
@@ -17,21 +20,45 @@ import (
 
 // GolfHandler handles golf-specific API endpoints
 type GolfHandler struct {
-	db               *database.DB
-	cache            *services.CacheService
-	logger           *logrus.Logger
-	golfProvider     *providers.ESPNGolfClient
+	db           *database.DB
+	cache        *services.CacheService
+	logger       *logrus.Logger
+	golfProvider interface {
+		GetPlayers(sport dfs.Sport, date string) ([]dfs.PlayerData, error)
+		GetPlayer(sport dfs.Sport, externalID string) (*dfs.PlayerData, error)
+		GetTeamRoster(sport dfs.Sport, teamID string) ([]dfs.PlayerData, error)
+		GetCurrentTournament() (*providers.GolfTournamentData, error)
+		GetTournamentSchedule() ([]providers.GolfTournamentData, error)
+	}
 	projectionService *services.GolfProjectionService
 }
 
 // NewGolfHandler creates a new golf handler
-func NewGolfHandler(db *database.DB, cache *services.CacheService, logger *logrus.Logger) *GolfHandler {
+func NewGolfHandler(db *database.DB, cache *services.CacheService, logger *logrus.Logger, cfg *config.Config) *GolfHandler {
 	projectionService := services.NewGolfProjectionService(db, cache, logger)
+
+	// Use RapidAPI provider if API key is available, otherwise fall back to ESPN
+	var golfProvider interface {
+		GetPlayers(sport dfs.Sport, date string) ([]dfs.PlayerData, error)
+		GetPlayer(sport dfs.Sport, externalID string) (*dfs.PlayerData, error)
+		GetTeamRoster(sport dfs.Sport, teamID string) ([]dfs.PlayerData, error)
+		GetCurrentTournament() (*providers.GolfTournamentData, error)
+		GetTournamentSchedule() ([]providers.GolfTournamentData, error)
+	}
+
+	if cfg.RapidAPIKey != "" {
+		logger.Info("Using RapidAPI Golf provider")
+		golfProvider = providers.NewRapidAPIGolfClient(cfg.RapidAPIKey, cache, logger)
+	} else {
+		logger.Info("Using ESPN Golf provider (no RapidAPI key configured)")
+		golfProvider = providers.NewESPNGolfClient(cache, logger)
+	}
+
 	return &GolfHandler{
-		db:               db,
-		cache:            cache,
-		logger:           logger,
-		golfProvider:     providers.NewESPNGolfClient(cache, logger),
+		db:                db,
+		cache:             cache,
+		logger:            logger,
+		golfProvider:      golfProvider,
 		projectionService: projectionService,
 	}
 }
@@ -86,7 +113,7 @@ func (h *GolfHandler) GetTournament(c *gin.Context) {
 	tournamentID := c.Param("id")
 
 	var tournament models.GolfTournament
-	
+
 	// Try to parse as UUID first, then as external ID
 	if _, err := uuid.Parse(tournamentID); err == nil {
 		// It's a UUID
@@ -187,7 +214,7 @@ func (h *GolfHandler) GetTournamentPlayers(c *gin.Context) {
 			"id":               entry.Player.ID,
 			"name":             entry.Player.Name,
 			"external_id":      entry.Player.ExternalID,
-			"position":         "G", // Golfer
+			"position":         "G",               // Golfer
 			"team":             entry.Player.Team, // Country in golf
 			"status":           entry.Status,
 			"current_position": entry.CurrentPosition,
@@ -217,16 +244,21 @@ func (h *GolfHandler) GetTournamentPlayers(c *gin.Context) {
 
 // SyncTournamentData syncs tournament data from external provider
 func (h *GolfHandler) SyncTournamentData(c *gin.Context) {
-	// tournamentID would be used to sync specific tournaments
-	// For now, we only support syncing the current tournament
-	_ = c.Param("id") // TODO: Implement specific tournament sync
+	// Create sync service
+	syncService := services.NewGolfTournamentSyncService(h.db, h.golfProvider, h.logger)
 
-	// This would typically be admin-only
-	// Get tournament data from ESPN
+	// Sync all active tournaments
+	if err := syncService.SyncAllActiveTournaments(); err != nil {
+		h.logger.Error("Failed to sync golf tournaments", "error", err)
+		utils.SendInternalError(c, "Failed to sync tournament data")
+		return
+	}
+
+	// Also sync tournament details for display
 	tournamentData, err := h.golfProvider.GetCurrentTournament()
 	if err != nil {
 		h.logger.Error("Failed to fetch tournament from provider", "error", err)
-		utils.SendInternalError(c, "Failed to sync tournament data")
+		utils.SendInternalError(c, "Failed to get current tournament")
 		return
 	}
 
@@ -300,10 +332,15 @@ func (h *GolfHandler) SyncTournamentData(c *gin.Context) {
 		}
 	}
 
+	// Get updated contest count
+	var contestCount int64
+	h.db.Model(&models.Contest{}).Where("sport = ? AND is_active = ?", "golf", true).Count(&contestCount)
+
 	c.JSON(http.StatusOK, gin.H{
-		"message":     "Tournament data synced successfully",
-		"tournament":  tournament,
-		"player_count": len(players),
+		"message":          "Tournament data synced successfully",
+		"tournament":       tournament,
+		"player_count":     len(players),
+		"contests_created": contestCount,
 	})
 }
 
@@ -314,7 +351,7 @@ func (h *GolfHandler) GetPlayerHistory(c *gin.Context) {
 
 	var histories []models.GolfCourseHistory
 	query := h.db.Where("player_id = ?", playerID)
-	
+
 	if courseID != "" {
 		query = query.Where("course_id = ?", courseID)
 	}
@@ -377,4 +414,87 @@ func (h *GolfHandler) GetGolfProjections(c *gin.Context) {
 		"projections":  projections,
 		"correlations": correlations,
 	})
+}
+
+// GetTournamentSchedule returns the upcoming tournament schedule
+func (h *GolfHandler) GetTournamentSchedule(c *gin.Context) {
+	// Get year parameter, default to current year
+	yearStr := c.DefaultQuery("year", strconv.Itoa(time.Now().Year()))
+	year, err := strconv.Atoi(yearStr)
+	if err != nil {
+		utils.SendValidationError(c, "Invalid year parameter", err.Error())
+		return
+	}
+
+	// Check cache first
+	cacheKey := fmt.Sprintf("golf:schedule:%d", year)
+	var cachedSchedule interface{}
+	if err := h.cache.GetSimple(cacheKey, &cachedSchedule); err == nil {
+		c.JSON(http.StatusOK, cachedSchedule)
+		return
+	}
+
+	// Get schedule from provider
+	schedule, err := h.golfProvider.GetTournamentSchedule()
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to fetch tournament schedule")
+		// Try to get from database as fallback
+		var tournaments []models.GolfTournament
+		query := h.db.Where("EXTRACT(YEAR FROM start_date) = ?", year).
+			Order("start_date ASC")
+
+		if err := query.Find(&tournaments).Error; err != nil {
+			utils.SendInternalError(c, "Failed to fetch tournament schedule")
+			return
+		}
+
+		// Return database results
+		c.JSON(http.StatusOK, gin.H{
+			"tournaments": tournaments,
+			"source":      "database",
+			"cached_at":   time.Now(),
+		})
+		return
+	}
+
+	// Filter to requested year and get next 4 upcoming tournaments
+	now := time.Now()
+	upcoming := make([]providers.GolfTournamentData, 0)
+	allYearTournaments := make([]providers.GolfTournamentData, 0)
+
+	for _, tournament := range schedule {
+		if tournament.StartDate.Year() == year {
+			allYearTournaments = append(allYearTournaments, tournament)
+			if tournament.StartDate.After(now) && len(upcoming) < 4 {
+				upcoming = append(upcoming, tournament)
+			}
+		}
+	}
+
+	// If we don't have 4 upcoming, include recent past tournaments
+	if len(upcoming) < 4 {
+		for _, tournament := range allYearTournaments {
+			if tournament.StartDate.Before(now) || tournament.StartDate.Equal(now) {
+				upcoming = append(upcoming, tournament)
+				if len(upcoming) >= 4 {
+					break
+				}
+			}
+		}
+	}
+
+	// Build response with cache metadata
+	response := gin.H{
+		"tournaments": upcoming,
+		"total_year":  len(allYearTournaments),
+		"year":        year,
+		"source":      "api",
+		"cached_at":   time.Now(),
+		"next_update": time.Now().Add(24 * time.Hour),
+	}
+
+	// Cache for 24 hours
+	h.cache.SetSimple(cacheKey, response, 24*time.Hour)
+
+	c.JSON(http.StatusOK, response)
 }

@@ -55,7 +55,7 @@ func setupTestEnvironment(t *testing.T) (*gin.Engine, *database.DB, func()) {
 	router := gin.New()
 	cache := services.NewCacheService(nil, cfg.Logger)
 	wsHub := services.NewWebSocketHub(cfg.Logger)
-	
+
 	// Mock aggregator and data fetcher
 	aggregator := &services.DataAggregator{}
 	dataFetcher := &services.DataFetcherService{}
@@ -149,8 +149,8 @@ func TestGolfOptimization(t *testing.T) {
 
 	t.Run("Optimize Golf Lineup", func(t *testing.T) {
 		reqBody := map[string]interface{}{
-			"contest_id":   contest.ID,
-			"num_lineups":  5,
+			"contest_id":  contest.ID,
+			"num_lineups": 5,
 			"constraints": map[string]interface{}{
 				"min_cut_probability": 0.5,
 			},
@@ -175,7 +175,7 @@ func TestGolfOptimization(t *testing.T) {
 		for _, lineup := range response.Lineups {
 			assert.Len(t, lineup.Players, 6) // Golf lineups have 6 players
 			assert.LessOrEqual(t, lineup.TotalSalary, contest.SalaryCap)
-			
+
 			// All players should be golfers
 			for _, player := range lineup.Players {
 				assert.Equal(t, "G", player.Position)
@@ -200,9 +200,9 @@ func TestGolfProjections(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var response struct {
-			Tournament   models.GolfTournament                      `json:"tournament"`
-			Projections  map[string]*models.GolfProjection          `json:"projections"`
-			Correlations map[string]map[string]float64              `json:"correlations"`
+			Tournament   models.GolfTournament             `json:"tournament"`
+			Projections  map[string]*models.GolfProjection `json:"projections"`
+			Correlations map[string]map[string]float64     `json:"correlations"`
 		}
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
@@ -233,7 +233,7 @@ func TestGolfCorrelations(t *testing.T) {
 
 	// Test same country correlation
 	assert.Greater(t, correlations[1][2], 0.0, "Same country players should have positive correlation")
-	
+
 	// Test similar skill level correlation
 	assert.Greater(t, correlations[1][2], correlations[1][4], "Similar salary players should have higher correlation")
 }
@@ -269,7 +269,7 @@ func TestGolfStacking(t *testing.T) {
 				if salaryDiff > 3000 {
 					hasValueStack = true
 				}
-				
+
 				ownershipDiff := stack.Players[0].Ownership - stack.Players[1].Ownership
 				if ownershipDiff > 10 {
 					hasOwnershipStack = true
@@ -286,16 +286,16 @@ func TestGolfStacking(t *testing.T) {
 
 func createTestTournament(t *testing.T, db *database.DB) *models.GolfTournament {
 	tournament := &models.GolfTournament{
-		ID:           uuid.New(),
-		ExternalID:   "test-masters-2024",
-		Name:         "Masters Tournament",
-		StartDate:    time.Now(),
-		EndDate:      time.Now().AddDate(0, 0, 4),
-		Status:       models.TournamentScheduled,
-		CourseName:   "Augusta National",
-		CoursePar:    72,
-		CourseYards:  7475,
-		Purse:        15000000,
+		ID:          uuid.New(),
+		ExternalID:  "test-masters-2024",
+		Name:        "Masters Tournament",
+		StartDate:   time.Now(),
+		EndDate:     time.Now().AddDate(0, 0, 4),
+		Status:      models.TournamentScheduled,
+		CourseName:  "Augusta National",
+		CoursePar:   72,
+		CourseYards: 7475,
+		Purse:       15000000,
 	}
 
 	err := db.Create(tournament).Error
@@ -339,7 +339,7 @@ func createTestPlayers(t *testing.T, db *database.DB, count int) []models.Player
 			CeilingPoints:   50 + float64(i*3),
 			Ownership:       5 + float64(i%20),
 		}
-		
+
 		err := db.Create(&player).Error
 		require.NoError(t, err)
 		players[i] = player
@@ -351,16 +351,16 @@ func createTestPlayers(t *testing.T, db *database.DB, count int) []models.Player
 func createTestEntries(t *testing.T, db *database.DB, tournament *models.GolfTournament, players []models.Player) {
 	for i, player := range players {
 		entry := &models.GolfPlayerEntry{
-			ID:               uuid.New(),
-			PlayerID:         player.ID,
-			TournamentID:     tournament.ID,
-			Status:           models.EntryStatusEntered,
-			CurrentPosition:  i + 1,
-			TotalScore:       -5 + i,
-			DKSalary:         player.Salary,
-			FDSalary:         player.Salary + 1000,
-			DKOwnership:      player.Ownership,
-			FDOwnership:      player.Ownership * 0.9,
+			ID:              uuid.New(),
+			PlayerID:        player.ID,
+			TournamentID:    tournament.ID,
+			Status:          models.EntryStatusEntered,
+			CurrentPosition: i + 1,
+			TotalScore:      -5 + i,
+			DKSalary:        player.Salary,
+			FDSalary:        player.Salary + 1000,
+			DKOwnership:     player.Ownership,
+			FDOwnership:     player.Ownership * 0.9,
 		}
 
 		err := db.Create(entry).Error

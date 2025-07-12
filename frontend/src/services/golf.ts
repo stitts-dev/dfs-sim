@@ -1,4 +1,3 @@
-import { API_BASE_URL } from './api'
 import {
   GolfTournament,
   GolfLeaderboard,
@@ -8,6 +7,9 @@ import {
   GolfOptimizationParams,
   GolfLineup,
 } from '@/types/golf'
+
+// Use the same pattern as api.ts
+const API_BASE_URL = '/api/v1'
 
 const golfAPI = {
   // Tournament endpoints
@@ -32,6 +34,33 @@ const golfAPI = {
 
     if (!response.ok) {
       throw new Error('Failed to fetch tournaments')
+    }
+
+    return response.json()
+  },
+
+  async getTournamentSchedule(year?: number): Promise<{
+    tournaments: GolfTournament[]
+    total_year: number
+    year: number
+    source: string
+    cached_at: string
+    next_update: string
+  }> {
+    const queryParams = new URLSearchParams()
+    if (year) queryParams.append('year', year.toString())
+
+    const response = await fetch(
+      `${API_BASE_URL}/golf/tournaments/schedule?${queryParams}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch tournament schedule')
     }
 
     return response.json()
