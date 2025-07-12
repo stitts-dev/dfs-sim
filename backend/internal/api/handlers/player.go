@@ -144,12 +144,12 @@ func (h *PlayerHandler) GetPlayerStats(c *gin.Context) {
 	cacheKey := "aggregated:player:" + strconv.FormatUint(playerID, 10)
 	var aggPlayer dfs.AggregatedPlayer
 	err = h.cache.GetSimple(cacheKey, &aggPlayer)
-	
+
 	stats := map[string]interface{}{
 		"player_id": playerID,
 		"stats":     player.ProjectedPoints,
 	}
-	
+
 	// If we have aggregated data, include more stats
 	if err == nil && aggPlayer.Stats != nil {
 		stats["detailed_stats"] = aggPlayer.Stats
@@ -225,7 +225,7 @@ func (h *PlayerHandler) GetPlayerNews(c *gin.Context) {
 
 	// Check for injury status
 	news := []map[string]interface{}{}
-	
+
 	if player.IsInjured {
 		news = append(news, map[string]interface{}{
 			"id":        1,
@@ -237,7 +237,7 @@ func (h *PlayerHandler) GetPlayerNews(c *gin.Context) {
 			"impact":    "negative",
 		})
 	}
-	
+
 	// In production, you would fetch from ESPN news API or similar
 	// For now, return injury status if available
 

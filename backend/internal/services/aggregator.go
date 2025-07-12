@@ -16,12 +16,15 @@ import (
 
 // DataAggregator combines data from multiple providers
 type DataAggregator struct {
-	db              *database.DB
-	cache           *CacheService
-	logger          *logrus.Logger
-	espnClient      *providers.ESPNClient
-	sportsDBClient  *providers.TheSportsDBClient
+	db                *database.DB
+	cache             *CacheService
+	logger            *logrus.Logger
+	espnClient        *providers.ESPNClient
+	sportsDBClient    *providers.TheSportsDBClient
 	ballDontLieClient *providers.BallDontLieClient
+	golfProvider      dfs.Provider
+	// Add DraftKingsProvider
+	draftKingsProvider *providers.DraftKingsProvider
 }
 
 // NewDataAggregator creates a new data aggregator
@@ -32,13 +35,20 @@ func NewDataAggregator(
 	ballDontLieAPIKey string,
 ) *DataAggregator {
 	return &DataAggregator{
-		db:              db,
-		cache:           cache,
-		logger:          logger,
-		espnClient:      providers.NewESPNClient(cache, logger),
-		sportsDBClient:  providers.NewTheSportsDBClient(cache, logger),
-		ballDontLieClient: providers.NewBallDontLieClient(ballDontLieAPIKey, cache, logger),
+		db:                 db,
+		cache:              cache,
+		logger:             logger,
+		espnClient:         providers.NewESPNClient(cache, logger),
+		sportsDBClient:     providers.NewTheSportsDBClient(cache, logger),
+		ballDontLieClient:  providers.NewBallDontLieClient(ballDontLieAPIKey, cache, logger),
+		golfProvider:       providers.NewESPNGolfClient(cache, logger), // Default to ESPN
+		draftKingsProvider: providers.NewDraftKingsProvider(),
 	}
+}
+
+// SetGolfProvider sets the golf provider (used to inject RapidAPI when available)
+func (a *DataAggregator) SetGolfProvider(provider dfs.Provider) {
+	a.golfProvider = provider
 }
 
 // FetchResult represents the result of a fetch operation
@@ -59,11 +69,13 @@ func (a *DataAggregator) AggregatePlayersForContest(contestID uint, sportStr str
 		sport = dfs.SportNFL
 	case "MLB", "mlb":
 		sport = dfs.SportMLB
+	case "GOLF", "golf":
+		sport = dfs.SportGolf
 	default:
 		return nil, fmt.Errorf("unsupported sport: %s", sportStr)
 	}
 	cacheKey := fmt.Sprintf("aggregated:contest:%d", contestID)
-	
+
 	// Check cache first
 	var cachedPlayers []dfs.AggregatedPlayer
 	err := a.cache.GetSimple(cacheKey, &cachedPlayers)
@@ -76,42 +88,70 @@ func (a *DataAggregator) AggregatePlayersForContest(contestID uint, sportStr str
 	defer cancel()
 
 	results := a.fetchFromAllProviders(ctx, sport, time.Now().Format("2006-01-02"))
-	
+
 	// Aggregate results
 	aggregatedPlayers := a.mergePlayerData(results)
-	
+
 	// Calculate projections
 	for i := range aggregatedPlayers {
 		a.calculateProjections(&aggregatedPlayers[i])
 	}
-	
+
 	// Update database
 	err = a.updateDatabasePlayers(aggregatedPlayers, contestID)
 	if err != nil {
 		a.logger.Errorf("Failed to update database: %v", err)
 	}
-	
+
 	// Cache for 1 hour
 	if len(aggregatedPlayers) > 0 {
 		a.cache.SetSimple(cacheKey, aggregatedPlayers, 1*time.Hour)
 	}
-	
+
 	return aggregatedPlayers, nil
 }
 
 // fetchFromAllProviders fetches data from all providers in parallel
 func (a *DataAggregator) fetchFromAllProviders(ctx context.Context, sport dfs.Sport, date string) []FetchResult {
 	var wg sync.WaitGroup
-	results := make(chan FetchResult, 3)
-	
-	// ESPN
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		players, err := a.espnClient.GetPlayers(sport, date)
-		results <- FetchResult{Provider: "espn", Players: players, Error: err}
-	}()
-	
+	results := make(chan FetchResult, 6) // Increased for DK on all sports
+
+	// Golf uses dedicated provider
+	if sport == dfs.SportGolf {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			players, err := a.golfProvider.GetPlayers(sport, date)
+			results <- FetchResult{Provider: "golf", Players: players, Error: err}
+		}()
+
+		// DraftKings for Golf
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			players, err := a.draftKingsProvider.GetPlayers(sport, date)
+			results <- FetchResult{Provider: "draftkings", Players: players, Error: err}
+		}()
+	} else {
+		// ESPN for other sports
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			players, err := a.espnClient.GetPlayers(sport, date)
+			results <- FetchResult{Provider: "espn", Players: players, Error: err}
+		}()
+
+		// DraftKings for NBA and LOL
+		if sport == dfs.SportNBA || string(sport) == "lol" {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				players, err := a.draftKingsProvider.GetPlayers(sport, date)
+				results <- FetchResult{Provider: "draftkings", Players: players, Error: err}
+			}()
+		}
+	}
+
 	// TheSportsDB (only for NBA/NFL/MLB)
 	if sport == dfs.SportNBA || sport == dfs.SportNFL || sport == dfs.SportMLB {
 		wg.Add(1)
@@ -121,7 +161,7 @@ func (a *DataAggregator) fetchFromAllProviders(ctx context.Context, sport dfs.Sp
 			results <- FetchResult{Provider: "thesportsdb", Players: []dfs.PlayerData{}, Error: nil}
 		}()
 	}
-	
+
 	// BALLDONTLIE (only for NBA)
 	if sport == dfs.SportNBA {
 		wg.Add(1)
@@ -131,13 +171,13 @@ func (a *DataAggregator) fetchFromAllProviders(ctx context.Context, sport dfs.Sp
 			results <- FetchResult{Provider: "balldontlie", Players: players, Error: err}
 		}()
 	}
-	
+
 	// Close results channel when all fetches complete
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
-	
+
 	// Collect results
 	var allResults []FetchResult
 	for result := range results {
@@ -146,7 +186,7 @@ func (a *DataAggregator) fetchFromAllProviders(ctx context.Context, sport dfs.Sp
 		}
 		allResults = append(allResults, result)
 	}
-	
+
 	return allResults
 }
 
@@ -154,15 +194,15 @@ func (a *DataAggregator) fetchFromAllProviders(ctx context.Context, sport dfs.Sp
 func (a *DataAggregator) mergePlayerData(results []FetchResult) []dfs.AggregatedPlayer {
 	// Group players by name and team
 	playerMap := make(map[string]*dfs.AggregatedPlayer)
-	
+
 	for _, result := range results {
 		if result.Error != nil {
 			continue
 		}
-		
+
 		for _, player := range result.Players {
 			key := a.generatePlayerKey(player.Name, player.Team)
-			
+
 			if existing, exists := playerMap[key]; exists {
 				// Merge data
 				a.mergeIntoExisting(existing, player, result.Provider)
@@ -172,13 +212,13 @@ func (a *DataAggregator) mergePlayerData(results []FetchResult) []dfs.Aggregated
 			}
 		}
 	}
-	
+
 	// Convert map to slice
 	aggregated := make([]dfs.AggregatedPlayer, 0, len(playerMap))
 	for _, player := range playerMap {
 		aggregated = append(aggregated, *player)
 	}
-	
+
 	return aggregated
 }
 
@@ -200,7 +240,7 @@ func (a *DataAggregator) createAggregatedPlayer(player dfs.PlayerData, provider 
 		Stats:       make(map[string]float64),
 		LastUpdated: time.Now(),
 	}
-	
+
 	switch provider {
 	case "espn":
 		aggPlayer.ESPNData = &player
@@ -208,13 +248,15 @@ func (a *DataAggregator) createAggregatedPlayer(player dfs.PlayerData, provider 
 		aggPlayer.TheSportsDBData = &player
 	case "balldontlie":
 		aggPlayer.BallDontLieData = &player
+	case "draftkings":
+		aggPlayer.DraftKingsData = &player
 	}
-	
+
 	// Copy stats
 	for k, v := range player.Stats {
 		aggPlayer.Stats[k] = v
 	}
-	
+
 	return aggPlayer
 }
 
@@ -231,13 +273,15 @@ func (a *DataAggregator) mergeIntoExisting(existing *dfs.AggregatedPlayer, playe
 		}
 	case "balldontlie":
 		existing.BallDontLieData = &player
+	case "draftkings":
+		existing.DraftKingsData = &player
 	}
-	
+
 	// Merge stats (prefer newer data)
 	for k, v := range player.Stats {
 		existing.Stats[k] = v
 	}
-	
+
 	existing.LastUpdated = time.Now()
 }
 
@@ -254,13 +298,16 @@ func (a *DataAggregator) calculateProjections(player *dfs.AggregatedPlayer) {
 	if player.BallDontLieData != nil {
 		dataPoints++
 	}
-	
-	player.Confidence = float64(dataPoints) / 3.0
-	
+	if player.DraftKingsData != nil {
+		dataPoints++
+	}
+
+	player.Confidence = float64(dataPoints) / 4.0
+
 	// Calculate projected points based on available stats
 	// This is a simplified calculation - in production, you'd use more sophisticated algorithms
 	projectedPoints := 0.0
-	
+
 	// NBA scoring (DraftKings format)
 	if player.Stats["pts"] > 0 {
 		projectedPoints += player.Stats["pts"] * 1.0
@@ -269,7 +316,7 @@ func (a *DataAggregator) calculateProjections(player *dfs.AggregatedPlayer) {
 		projectedPoints += player.Stats["stl"] * 2.0
 		projectedPoints += player.Stats["blk"] * 2.0
 		projectedPoints += player.Stats["turnover"] * -0.5
-		
+
 		// Bonus for double-double or triple-double
 		doubles := 0
 		if player.Stats["pts"] >= 10 {
@@ -287,7 +334,7 @@ func (a *DataAggregator) calculateProjections(player *dfs.AggregatedPlayer) {
 		if player.Stats["blk"] >= 10 {
 			doubles++
 		}
-		
+
 		if doubles >= 2 {
 			projectedPoints += 1.5
 		}
@@ -295,65 +342,185 @@ func (a *DataAggregator) calculateProjections(player *dfs.AggregatedPlayer) {
 			projectedPoints += 3.0
 		}
 	}
-	
+
 	player.ProjectedPoints = projectedPoints
 }
 
 // updateDatabasePlayers updates or creates players in the database
 func (a *DataAggregator) updateDatabasePlayers(players []dfs.AggregatedPlayer, contestID uint) error {
+	// Start a transaction for atomic player updates
+	tx := a.db.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
 	for _, aggPlayer := range players {
-		// Check if player exists
+		// Get external ID for lookup - prefer DraftKings, then ESPN, then other sources
+		externalID := ""
+		if aggPlayer.DraftKingsData != nil && aggPlayer.DraftKingsData.ExternalID != "" {
+			externalID = aggPlayer.DraftKingsData.ExternalID
+		} else if aggPlayer.ESPNData != nil && aggPlayer.ESPNData.ExternalID != "" {
+			externalID = aggPlayer.ESPNData.ExternalID
+		} else if aggPlayer.BallDontLieData != nil && aggPlayer.BallDontLieData.ExternalID != "" {
+			externalID = aggPlayer.BallDontLieData.ExternalID
+		} else if aggPlayer.TheSportsDBData != nil && aggPlayer.TheSportsDBData.ExternalID != "" {
+			externalID = aggPlayer.TheSportsDBData.ExternalID
+		}
+
+		// If no external ID, use name as fallback (but this should be avoided)
+		if externalID == "" {
+			externalID = aggPlayer.Name
+		}
+
+		// Check if player exists using external_id + contest_id (matches the unique constraint)
 		var dbPlayer models.Player
-		err := a.db.DB.Where("name = ? AND team = ?", aggPlayer.Name, aggPlayer.Team).First(&dbPlayer).Error
-		
+		err := tx.Where("external_id = ? AND contest_id = ?", externalID, contestID).First(&dbPlayer).Error
+
 		if err != nil {
 			// Create new player
+			salary := a.getSalaryFromProviders(&aggPlayer)
+			if salary == 0 {
+				salary = a.estimateSalary(aggPlayer.ProjectedPoints)
+			}
+
 			dbPlayer = models.Player{
+				ExternalID:      externalID,
 				Name:            aggPlayer.Name,
 				Team:            aggPlayer.Team,
 				Position:        aggPlayer.Position,
-				Salary:          int(a.estimateSalary(aggPlayer.ProjectedPoints)),
+				Salary:          int(salary),
 				ProjectedPoints: aggPlayer.ProjectedPoints,
 				Ownership:       0.0, // Will be updated by another service
 				ContestID:       contestID,
 			}
-			
-			// Set external IDs
-			if aggPlayer.ESPNData != nil {
-				dbPlayer.ExternalID = aggPlayer.ESPNData.ExternalID
-			}
-			
-			err = a.db.DB.Create(&dbPlayer).Error
+
+			err = tx.Create(&dbPlayer).Error
 			if err != nil {
-				a.logger.Errorf("Failed to create player %s: %v", aggPlayer.Name, err)
-				continue
+				// Check if it's a duplicate key constraint error
+				if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
+					a.logger.Warnf("Player %s (external_id: %s) already exists in contest %d, skipping creation", aggPlayer.Name, externalID, contestID)
+					continue
+				}
+				a.logger.Errorf("Failed to create player %s (external_id: %s): %v", aggPlayer.Name, externalID, err)
+				tx.Rollback()
+				return fmt.Errorf("failed to create player %s: %w", aggPlayer.Name, err)
 			}
 		} else {
 			// Update existing player
 			dbPlayer.ProjectedPoints = aggPlayer.ProjectedPoints
-			if aggPlayer.ESPNData != nil && dbPlayer.ExternalID == "" {
-				dbPlayer.ExternalID = aggPlayer.ESPNData.ExternalID
+
+			// Update salary if we have better data
+			salary := a.getSalaryFromProviders(&aggPlayer)
+			if salary > 0 {
+				dbPlayer.Salary = int(salary)
 			}
-			
-			err = a.db.DB.Save(&dbPlayer).Error
+
+			// Update external ID if we have better data (but don't overwrite existing)
+			if externalID != "" && dbPlayer.ExternalID == "" {
+				dbPlayer.ExternalID = externalID
+			}
+
+			err = tx.Save(&dbPlayer).Error
 			if err != nil {
-				a.logger.Errorf("Failed to update player %s: %v", aggPlayer.Name, err)
+				a.logger.Errorf("Failed to update player %s (external_id: %s): %v", aggPlayer.Name, externalID, err)
+				tx.Rollback()
+				return fmt.Errorf("failed to update player %s: %w", aggPlayer.Name, err)
 			}
 		}
 	}
-	
+
+	// Commit the transaction
+	if err := tx.Commit().Error; err != nil {
+		a.logger.Errorf("Failed to commit player updates transaction: %v", err)
+		return fmt.Errorf("failed to commit player updates: %w", err)
+	}
+
 	return nil
+}
+
+// getSalaryFromProviders gets salary from provider data, preferring DraftKings
+func (a *DataAggregator) getSalaryFromProviders(player *dfs.AggregatedPlayer) float64 {
+	// First check DraftKings data for actual salary
+	if player.DraftKingsData != nil {
+		if salary, exists := player.DraftKingsData.Stats["salary"]; exists && salary > 0 {
+			return salary
+		}
+	}
+
+	// Fall back to other providers if they have salary data
+	if player.ESPNData != nil {
+		if salary, exists := player.ESPNData.Stats["salary"]; exists && salary > 0 {
+			return salary
+		}
+	}
+
+	if player.TheSportsDBData != nil {
+		if salary, exists := player.TheSportsDBData.Stats["salary"]; exists && salary > 0 {
+			return salary
+		}
+	}
+
+	if player.BallDontLieData != nil {
+		if salary, exists := player.BallDontLieData.Stats["salary"]; exists && salary > 0 {
+			return salary
+		}
+	}
+
+	return 0 // No salary data found
 }
 
 // estimateSalary estimates salary based on projected points
 func (a *DataAggregator) estimateSalary(projectedPoints float64) float64 {
-	// Simple linear estimation
-	// In production, you'd use actual DFS site salaries
-	baseSalary := 3000.0
-	pointValue := 100.0
-	
-	salary := baseSalary + (projectedPoints * pointValue)
-	
+	// More realistic DraftKings-style salary estimation
+	// Based on analysis of actual DK salaries
+
+	// Minimum and maximum salaries
+	minSalary := 3000.0
+	maxSalary := 12000.0
+
+	// Different tiers based on projected points
+	var salary float64
+
+	switch {
+	case projectedPoints >= 50: // Elite tier (50+ points)
+		// Elite players: $9,000 - $12,000
+		salary = 9000 + (projectedPoints-50)*150
+
+	case projectedPoints >= 40: // Star tier (40-50 points)
+		// Star players: $7,000 - $9,000
+		salary = 7000 + (projectedPoints-40)*200
+
+	case projectedPoints >= 30: // Above average (30-40 points)
+		// Good players: $5,500 - $7,000
+		salary = 5500 + (projectedPoints-30)*150
+
+	case projectedPoints >= 20: // Average (20-30 points)
+		// Role players: $4,000 - $5,500
+		salary = 4000 + (projectedPoints-20)*150
+
+	case projectedPoints >= 10: // Below average (10-20 points)
+		// Bench players: $3,000 - $4,000
+		salary = 3000 + (projectedPoints-10)*100
+
+	default: // Minimal playing time
+		salary = minSalary
+	}
+
+	// Apply small variance (±3%) to create more realistic distribution
+	// Use hash of projected points for consistent variance per player
+	hash := int(projectedPoints * 1000)
+	variance := (salary * 0.03) * (2.0*float64(hash%100)/100.0 - 1.0)
+	salary += variance
+
+	// Ensure within bounds
+	if salary < minSalary {
+		salary = minSalary
+	} else if salary > maxSalary {
+		salary = maxSalary
+	}
+
 	// Round to nearest 100
 	return float64(int(salary/100) * 100)
 }
@@ -362,14 +529,14 @@ func (a *DataAggregator) estimateSalary(projectedPoints float64) float64 {
 func (a *DataAggregator) EnrichPlayerWithImages(players []models.Player) {
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 5) // Limit concurrent requests
-	
+
 	for i := range players {
 		wg.Add(1)
 		go func(player *models.Player) {
 			defer wg.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			
+
 			// Search for player image
 			playerData, err := a.sportsDBClient.GetPlayer(dfs.SportNBA, player.Name)
 			if err == nil && playerData != nil && playerData.ImageURL != "" {
@@ -379,6 +546,6 @@ func (a *DataAggregator) EnrichPlayerWithImages(players []models.Player) {
 			}
 		}(&players[i])
 	}
-	
+
 	wg.Wait()
 }

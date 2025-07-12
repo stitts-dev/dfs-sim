@@ -12,14 +12,16 @@ import (
 )
 
 type ContestHandler struct {
-	db    *database.DB
-	cache *services.CacheService
+	db          *database.DB
+	cache       *services.CacheService
+	dataFetcher *services.DataFetcherService
 }
 
-func NewContestHandler(db *database.DB, cache *services.CacheService) *ContestHandler {
+func NewContestHandler(db *database.DB, cache *services.CacheService, dataFetcher *services.DataFetcherService) *ContestHandler {
 	return &ContestHandler{
-		db:    db,
-		cache: cache,
+		db:          db,
+		cache:       cache,
+		dataFetcher: dataFetcher,
 	}
 }
 
@@ -64,6 +66,11 @@ func (h *ContestHandler) ListContests(c *gin.Context) {
 	offset := (page - 1) * perPage
 	query = query.Offset(offset).Limit(perPage).Order("start_time ASC")
 
+	// Include tournament data for golf contests
+	if sport == "golf" || sport == "" {
+		query = query.Preload("Tournament")
+	}
+
 	var contests []models.Contest
 	if err := query.Find(&contests).Error; err != nil {
 		utils.SendInternalError(c, "Failed to fetch contests")
@@ -96,9 +103,21 @@ func (h *ContestHandler) GetContest(c *gin.Context) {
 	}
 
 	var contest models.Contest
-	if err := h.db.First(&contest, contestID).Error; err != nil {
-		utils.SendNotFound(c, "Contest not found")
-		return
+
+	// First check sport to determine if we need to preload tournament
+	h.db.First(&contest, contestID)
+
+	// Re-query with preload if it's a golf contest
+	if contest.Sport == "golf" {
+		if err := h.db.Preload("Tournament").First(&contest, contestID).Error; err != nil {
+			utils.SendNotFound(c, "Contest not found")
+			return
+		}
+	} else {
+		if err := h.db.First(&contest, contestID).Error; err != nil {
+			utils.SendNotFound(c, "Contest not found")
+			return
+		}
 	}
 
 	// Add additional contest info
@@ -115,7 +134,7 @@ func (h *ContestHandler) GetContest(c *gin.Context) {
 func (h *ContestHandler) CreateContest(c *gin.Context) {
 	var req struct {
 		Platform          string  `json:"platform" binding:"required,oneof=draftkings fanduel"`
-		Sport             string  `json:"sport" binding:"required,oneof=nba nfl mlb nhl"`
+		Sport             string  `json:"sport" binding:"required,oneof=nba nfl mlb nhl golf"`
 		ContestType       string  `json:"contest_type" binding:"required,oneof=gpp cash"`
 		Name              string  `json:"name" binding:"required"`
 		EntryFee          float64 `json:"entry_fee" binding:"required,min=0"`
@@ -245,6 +264,107 @@ func (h *ContestHandler) UpdateContest(c *gin.Context) {
 	}
 
 	utils.SendSuccess(c, contest)
+}
+
+// FetchContestData manually triggers data fetching for a contest
+func (h *ContestHandler) FetchContestData(c *gin.Context) {
+	contestIDStr := c.Param("id")
+	contestID, err := strconv.ParseUint(contestIDStr, 10, 32)
+	if err != nil {
+		utils.SendValidationError(c, "Invalid contest ID", err.Error())
+		return
+	}
+
+	// Check if contest exists
+	var contest models.Contest
+	if err := h.db.First(&contest, contestID).Error; err != nil {
+		utils.SendNotFound(c, "Contest not found")
+		return
+	}
+
+	// Trigger data fetch
+	if err := h.dataFetcher.FetchOnDemand(uint(contestID)); err != nil {
+		utils.SendInternalError(c, "Failed to trigger data fetch")
+		return
+	}
+
+	// Return success with info
+	utils.SendSuccess(c, gin.H{
+		"message":      "Data fetch triggered successfully",
+		"contest_id":   contestID,
+		"contest_name": contest.Name,
+		"sport":        contest.Sport,
+		"last_update":  contest.LastDataUpdate,
+		"note":         "Data fetching is running in the background. Please check back in a few moments.",
+	})
+}
+
+// GetContestDataStatus returns the data status for a contest
+func (h *ContestHandler) GetContestDataStatus(c *gin.Context) {
+	contestIDStr := c.Param("id")
+	contestID, err := strconv.ParseUint(contestIDStr, 10, 32)
+	if err != nil {
+		utils.SendValidationError(c, "Invalid contest ID", err.Error())
+		return
+	}
+
+	// Get contest
+	var contest models.Contest
+	if err := h.db.First(&contest, contestID).Error; err != nil {
+		utils.SendNotFound(c, "Contest not found")
+		return
+	}
+
+	// Get player counts by position
+	var positionStats []struct {
+		Position string
+		Count    int64
+	}
+	h.db.Model(&models.Player{}).
+		Where("contest_id = ?", contestID).
+		Select("position, COUNT(*) as count").
+		Group("position").
+		Order("position").
+		Scan(&positionStats)
+
+	// Get salary stats
+	var salaryStats struct {
+		MinSalary int
+		MaxSalary int
+		AvgSalary float64
+	}
+	h.db.Model(&models.Player{}).
+		Where("contest_id = ?", contestID).
+		Select("MIN(salary) as min_salary, MAX(salary) as max_salary, AVG(salary) as avg_salary").
+		Scan(&salaryStats)
+
+	// Get total player count
+	var totalPlayers int64
+	h.db.Model(&models.Player{}).Where("contest_id = ?", contestID).Count(&totalPlayers)
+
+	// Calculate data freshness
+	var dataAge time.Duration
+	if !contest.LastDataUpdate.IsZero() {
+		dataAge = time.Since(contest.LastDataUpdate)
+	}
+
+	// Get fetcher status
+	fetcherStatus := h.dataFetcher.GetFetchStatus()
+
+	utils.SendSuccess(c, gin.H{
+		"contest_id":         contestID,
+		"contest_name":       contest.Name,
+		"sport":              contest.Sport,
+		"platform":           contest.Platform,
+		"last_data_update":   contest.LastDataUpdate,
+		"data_age_minutes":   int(dataAge.Minutes()),
+		"is_stale":           dataAge > 2*time.Hour,
+		"total_players":      totalPlayers,
+		"positions":          positionStats,
+		"salary_stats":       salaryStats,
+		"fetcher_status":     fetcherStatus,
+		"recommended_action": getRecommendedAction(totalPlayers, dataAge),
+	})
 }
 
 // GetContestLeaderboard returns contest standings
@@ -399,4 +519,120 @@ func calculatePayout(rank int, contest models.Contest) float64 {
 	default:
 		return 0
 	}
+}
+
+func getRecommendedAction(totalPlayers int64, dataAge time.Duration) string {
+	if totalPlayers == 0 {
+		return "No player data found. Click 'Fetch Data' to load players."
+	}
+	if dataAge > 24*time.Hour {
+		return "Data is over 24 hours old. Consider refreshing."
+	}
+	if dataAge > 2*time.Hour {
+		return "Data is stale. Refresh recommended for latest player info."
+	}
+	return "Data is up to date."
+}
+
+// DiscoverContests manually triggers contest discovery for a specific sport
+func (h *ContestHandler) DiscoverContests(c *gin.Context) {
+	sport := c.Query("sport")
+	if sport == "" {
+		utils.SendValidationError(c, "Sport parameter is required", "")
+		return
+	}
+
+	// Trigger contest discovery
+	if err := h.dataFetcher.DiscoverContestsOnDemand(sport); err != nil {
+		utils.SendInternalError(c, "Failed to discover contests")
+		return
+	}
+
+	utils.SendSuccess(c, gin.H{
+		"message": "Contest discovery triggered successfully",
+		"sport":   sport,
+		"note":    "Discovery is running in the background. New contests will appear shortly.",
+	})
+}
+
+// SyncContest manually triggers sync for a specific contest
+func (h *ContestHandler) SyncContest(c *gin.Context) {
+	contestIDStr := c.Param("id")
+	contestID, err := strconv.ParseUint(contestIDStr, 10, 32)
+	if err != nil {
+		utils.SendValidationError(c, "Invalid contest ID", err.Error())
+		return
+	}
+
+	// Check if contest exists
+	var contest models.Contest
+	if err := h.db.First(&contest, contestID).Error; err != nil {
+		utils.SendNotFound(c, "Contest not found")
+		return
+	}
+
+	// Trigger sync for the contest's sport
+	if err := h.dataFetcher.DiscoverContestsOnDemand(contest.Sport); err != nil {
+		utils.SendInternalError(c, "Failed to sync contest")
+		return
+	}
+
+	utils.SendSuccess(c, gin.H{
+		"message":      "Contest sync triggered successfully",
+		"contest_id":   contestID,
+		"contest_name": contest.Name,
+		"sport":        contest.Sport,
+		"note":         "Sync is running in the background. Contest data will be updated shortly.",
+	})
+}
+
+// GetContestDiscoveryStatus returns the status of contest discovery
+func (h *ContestHandler) GetContestDiscoveryStatus(c *gin.Context) {
+	// Get discovery status from data fetcher
+	fetcherStatus := h.dataFetcher.GetFetchStatus()
+
+	// Get contest counts by sport
+	var sportCounts []struct {
+		Sport string
+		Count int64
+	}
+	h.db.Model(&models.Contest{}).
+		Where("is_active = ?", true).
+		Select("sport, COUNT(*) as count").
+		Group("sport").
+		Order("sport").
+		Scan(&sportCounts)
+
+	// Get recent discoveries
+	var recentContests []models.Contest
+	h.db.Model(&models.Contest{}).
+		Where("last_sync_time > ?", time.Now().Add(-24*time.Hour)).
+		Order("last_sync_time DESC").
+		Limit(10).
+		Find(&recentContests)
+
+	// Get latest sync time
+	var latestSync time.Time
+	h.db.Model(&models.Contest{}).
+		Select("MAX(last_sync_time) as latest_sync").
+		Where("last_sync_time IS NOT NULL").
+		Scan(&latestSync)
+
+	// Count total active contests
+	var totalActive int64
+	h.db.Model(&models.Contest{}).Where("is_active = ?", true).Count(&totalActive)
+
+	utils.SendSuccess(c, gin.H{
+		"discovery_status": gin.H{
+			"is_running":            fetcherStatus["is_running"],
+			"fetch_interval":        fetcherStatus["fetch_interval"],
+			"next_discovery_runs":   fetcherStatus["next_runs"],
+			"total_active_contests": totalActive,
+			"contests_by_sport":     sportCounts,
+			"latest_sync_time":      latestSync,
+			"recent_discoveries":    recentContests,
+			"discovery_enabled":     true,
+			"supported_sports":      []string{"nba", "nfl", "mlb", "nhl", "golf", "lol"},
+		},
+	})
 }

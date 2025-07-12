@@ -38,17 +38,17 @@ func NewESPNGolfClient(cache dfs.CacheProvider, logger *logrus.Logger) *ESPNGolf
 // ESPN Golf API response structures
 type espnGolfLeaderboardResponse struct {
 	Events []struct {
-		ID           string `json:"id"`
-		Name         string `json:"name"`
-		Date         string `json:"date"`
-		EndDate      string `json:"endDate"`
+		ID           string          `json:"id"`
+		Name         string          `json:"name"`
+		Date         string          `json:"date"`
+		EndDate      string          `json:"endDate"`
 		Status       espnEventStatus `json:"status"`
-		Purse        string `json:"purse"`
+		Purse        string          `json:"purse"`
 		Competitions []struct {
-			ID         string `json:"id"`
+			ID          string               `json:"id"`
 			Competitors []espnGolfCompetitor `json:"competitors"`
-			Status     espnEventStatus `json:"status"`
-			Format     struct {
+			Status      espnEventStatus      `json:"status"`
+			Format      struct {
 				NumberOfRounds int `json:"numberOfRounds"`
 			} `json:"format"`
 			Course espnGolfCourse `json:"course"`
@@ -68,12 +68,12 @@ type espnEventStatus struct {
 }
 
 type espnGolfCompetitor struct {
-	ID       string `json:"id"`
+	ID       string          `json:"id"`
 	Athlete  espnGolfAthlete `json:"athlete"`
-	Status   string `json:"status"`
-	Score    string `json:"score"`
-	Position string `json:"position"`
-	Movement string `json:"movement"`
+	Status   string          `json:"status"`
+	Score    string          `json:"score"`
+	Position string          `json:"position"`
+	Movement string          `json:"movement"`
 	Rounds   []espnGolfRound `json:"rounds"`
 	Stats    []struct {
 		Name  string `json:"name"`
@@ -95,21 +95,21 @@ type espnGolfAthlete struct {
 }
 
 type espnGolfRound struct {
-	Number     int    `json:"number"`
-	Score      string `json:"score"`
-	Strokes    int    `json:"strokes"`
-	TeeTime    string `json:"teeTime"`
-	ThruHoles  int    `json:"thru"`
+	Number    int    `json:"number"`
+	Score     string `json:"score"`
+	Strokes   int    `json:"strokes"`
+	TeeTime   string `json:"teeTime"`
+	ThruHoles int    `json:"thru"`
 }
 
 type espnGolfCourse struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	City     string `json:"city"`
-	State    string `json:"state"`
-	Nation   string `json:"nation"`
-	Yardage  int    `json:"yardage"`
-	Par      int    `json:"par"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	City    string `json:"city"`
+	State   string `json:"state"`
+	Nation  string `json:"nation"`
+	Yardage int    `json:"yardage"`
+	Par     int    `json:"par"`
 }
 
 // GetPlayers fetches all players for a golf tournament
@@ -119,7 +119,7 @@ func (c *ESPNGolfClient) GetPlayers(sport dfs.Sport, date string) ([]dfs.PlayerD
 	}
 
 	cacheKey := fmt.Sprintf("espn:golf:players:%s", date)
-	
+
 	// Check cache first
 	var cachedPlayers []dfs.PlayerData
 	err := c.cache.GetSimple(cacheKey, &cachedPlayers)
@@ -133,23 +133,23 @@ func (c *ESPNGolfClient) GetPlayers(sport dfs.Sport, date string) ([]dfs.PlayerD
 	// Fetch current tournament leaderboard
 	url := fmt.Sprintf("%s/pga/leaderboard", c.baseURL)
 	var leaderboard espnGolfLeaderboardResponse
-	
+
 	if err := c.makeRequest(url, &leaderboard); err != nil {
 		return nil, fmt.Errorf("failed to fetch golf leaderboard: %w", err)
 	}
 
 	var players []dfs.PlayerData
-	
+
 	// Process the first (current) tournament
 	if len(leaderboard.Events) > 0 && len(leaderboard.Events[0].Competitions) > 0 {
 		competition := leaderboard.Events[0].Competitions[0]
-		
+
 		for _, competitor := range competition.Competitors {
 			// Skip players who have withdrawn
 			if competitor.Status == "withdrawn" {
 				continue
 			}
-			
+
 			player := dfs.PlayerData{
 				ExternalID:  competitor.ID,
 				Name:        competitor.Athlete.DisplayName,
@@ -160,7 +160,7 @@ func (c *ESPNGolfClient) GetPlayers(sport dfs.Sport, date string) ([]dfs.PlayerD
 				LastUpdated: time.Now(),
 				Source:      "espn_golf",
 			}
-			
+
 			players = append(players, player)
 		}
 	}
@@ -186,21 +186,21 @@ func (c *ESPNGolfClient) GetTeamRoster(sport dfs.Sport, teamID string) ([]dfs.Pl
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var teamPlayers []dfs.PlayerData
 	for _, player := range players {
 		if player.Team == teamID {
 			teamPlayers = append(teamPlayers, player)
 		}
 	}
-	
+
 	return teamPlayers, nil
 }
 
 // GetCurrentTournament fetches the current PGA tournament details
 func (c *ESPNGolfClient) GetCurrentTournament() (*GolfTournamentData, error) {
 	cacheKey := "espn:golf:current_tournament"
-	
+
 	// Check cache first
 	var cachedTournament GolfTournamentData
 	err := c.cache.GetSimple(cacheKey, &cachedTournament)
@@ -213,7 +213,7 @@ func (c *ESPNGolfClient) GetCurrentTournament() (*GolfTournamentData, error) {
 
 	url := fmt.Sprintf("%s/pga/leaderboard", c.baseURL)
 	var leaderboard espnGolfLeaderboardResponse
-	
+
 	if err := c.makeRequest(url, &leaderboard); err != nil {
 		return nil, fmt.Errorf("failed to fetch tournament data: %w", err)
 	}
@@ -224,7 +224,7 @@ func (c *ESPNGolfClient) GetCurrentTournament() (*GolfTournamentData, error) {
 
 	event := leaderboard.Events[0]
 	competition := event.Competitions[0]
-	
+
 	tournament := &GolfTournamentData{
 		ID:           event.ID,
 		Name:         event.Name,
@@ -254,39 +254,39 @@ func (c *ESPNGolfClient) GetCurrentTournament() (*GolfTournamentData, error) {
 func (c *ESPNGolfClient) makeRequest(url string, target interface{}) error {
 	var resp *http.Response
 	var err error
-	
+
 	// Implement exponential backoff
 	for attempt := 0; attempt < 3; attempt++ {
 		resp, err = c.httpClient.Get(url)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			break
 		}
-		
+
 		if resp != nil {
 			resp.Body.Close()
 		}
-		
+
 		// Exponential backoff
 		waitTime := time.Duration(math.Pow(2, float64(attempt))) * time.Second
 		c.logger.Warnf("Request failed (attempt %d), waiting %v: %v", attempt+1, waitTime, err)
 		time.Sleep(waitTime)
 	}
-	
+
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
-	
+
 	return json.NewDecoder(resp.Body).Decode(target)
 }
 
 func (c *ESPNGolfClient) extractGolfStats(competitor espnGolfCompetitor) map[string]float64 {
 	stats := make(map[string]float64)
-	
+
 	// Parse score (relative to par)
 	if competitor.Score != "" && competitor.Score != "E" {
 		score, err := strconv.ParseFloat(strings.TrimPrefix(competitor.Score, "+"), 64)
@@ -294,7 +294,7 @@ func (c *ESPNGolfClient) extractGolfStats(competitor espnGolfCompetitor) map[str
 			stats["score"] = score
 		}
 	}
-	
+
 	// Parse position
 	if competitor.Position != "" && competitor.Position != "T" {
 		position := strings.TrimPrefix(competitor.Position, "T")
@@ -302,7 +302,7 @@ func (c *ESPNGolfClient) extractGolfStats(competitor espnGolfCompetitor) map[str
 			stats["position"] = pos
 		}
 	}
-	
+
 	// Calculate total strokes from rounds
 	totalStrokes := 0
 	roundsPlayed := 0
@@ -311,24 +311,24 @@ func (c *ESPNGolfClient) extractGolfStats(competitor espnGolfCompetitor) map[str
 			totalStrokes += round.Strokes
 			roundsPlayed++
 		}
-		
+
 		// Store individual round scores
 		stats[fmt.Sprintf("round_%d_score", round.Number)] = float64(round.Strokes)
 	}
-	
+
 	if roundsPlayed > 0 {
 		stats["total_strokes"] = float64(totalStrokes)
 		stats["rounds_played"] = float64(roundsPlayed)
 		stats["avg_score"] = float64(totalStrokes) / float64(roundsPlayed)
 	}
-	
+
 	// Extract other statistics
 	for _, stat := range competitor.Stats {
 		if val, err := strconv.ParseFloat(stat.Value, 64); err == nil {
 			stats[strings.ToLower(strings.ReplaceAll(stat.Name, " ", "_"))] = val
 		}
 	}
-	
+
 	return stats
 }
 
@@ -383,4 +383,10 @@ type GolfTournamentData struct {
 	CourseYards  int       `json:"course_yards"`
 	Purse        float64   `json:"purse"`
 	CutLine      int       `json:"cut_line"`
+}
+
+// GetTournamentSchedule returns upcoming golf tournaments (not implemented for ESPN)
+func (c *ESPNGolfClient) GetTournamentSchedule() ([]GolfTournamentData, error) {
+	// ESPN doesn't provide a schedule endpoint, return empty
+	return []GolfTournamentData{}, nil
 }

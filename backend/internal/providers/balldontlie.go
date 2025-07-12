@@ -39,23 +39,23 @@ func NewBallDontLieClient(apiKey string, cache dfs.CacheProvider, logger *logrus
 // BALLDONTLIE API response structures
 type ballDontLiePlayersResponse struct {
 	Data []ballDontLiePlayer `json:"data"`
-	Meta ballDontLieMeta    `json:"meta"`
+	Meta ballDontLieMeta     `json:"meta"`
 }
 
 type ballDontLiePlayer struct {
-	ID              int     `json:"id"`
-	FirstName       string  `json:"first_name"`
-	LastName        string  `json:"last_name"`
-	Position        string  `json:"position"`
-	Height          string  `json:"height"`
-	Weight          string  `json:"weight"`
-	JerseyNumber    string  `json:"jersey_number"`
-	College         string  `json:"college"`
-	Country         string  `json:"country"`
-	DraftYear       int     `json:"draft_year"`
-	DraftRound      int     `json:"draft_round"`
-	DraftNumber     int     `json:"draft_number"`
-	Team            ballDontLieTeam `json:"team"`
+	ID           int             `json:"id"`
+	FirstName    string          `json:"first_name"`
+	LastName     string          `json:"last_name"`
+	Position     string          `json:"position"`
+	Height       string          `json:"height"`
+	Weight       string          `json:"weight"`
+	JerseyNumber string          `json:"jersey_number"`
+	College      string          `json:"college"`
+	Country      string          `json:"country"`
+	DraftYear    int             `json:"draft_year"`
+	DraftRound   int             `json:"draft_round"`
+	DraftNumber  int             `json:"draft_number"`
+	Team         ballDontLieTeam `json:"team"`
 }
 
 type ballDontLieTeam struct {
@@ -79,29 +79,29 @@ type ballDontLieStatsResponse struct {
 }
 
 type ballDontLieStats struct {
-	ID           int             `json:"id"`
-	Player       ballDontLiePlayer `json:"player"`
-	Game         ballDontLieGame   `json:"game"`
-	Team         ballDontLieTeam   `json:"team"`
-	Min          string          `json:"min"`
-	Fgm          int             `json:"fgm"`
-	Fga          int             `json:"fga"`
-	FgPct        float64         `json:"fg_pct"`
-	Fg3m         int             `json:"fg3m"`
-	Fg3a         int             `json:"fg3a"`
-	Fg3Pct       float64         `json:"fg3_pct"`
-	Ftm          int             `json:"ftm"`
-	Fta          int             `json:"fta"`
-	FtPct        float64         `json:"ft_pct"`
-	Oreb         int             `json:"oreb"`
-	Dreb         int             `json:"dreb"`
-	Reb          int             `json:"reb"`
-	Ast          int             `json:"ast"`
-	Stl          int             `json:"stl"`
-	Blk          int             `json:"blk"`
-	Turnover     int             `json:"turnover"`
-	Pf           int             `json:"pf"`
-	Pts          int             `json:"pts"`
+	ID       int               `json:"id"`
+	Player   ballDontLiePlayer `json:"player"`
+	Game     ballDontLieGame   `json:"game"`
+	Team     ballDontLieTeam   `json:"team"`
+	Min      string            `json:"min"`
+	Fgm      int               `json:"fgm"`
+	Fga      int               `json:"fga"`
+	FgPct    float64           `json:"fg_pct"`
+	Fg3m     int               `json:"fg3m"`
+	Fg3a     int               `json:"fg3a"`
+	Fg3Pct   float64           `json:"fg3_pct"`
+	Ftm      int               `json:"ftm"`
+	Fta      int               `json:"fta"`
+	FtPct    float64           `json:"ft_pct"`
+	Oreb     int               `json:"oreb"`
+	Dreb     int               `json:"dreb"`
+	Reb      int               `json:"reb"`
+	Ast      int               `json:"ast"`
+	Stl      int               `json:"stl"`
+	Blk      int               `json:"blk"`
+	Turnover int               `json:"turnover"`
+	Pf       int               `json:"pf"`
+	Pts      int               `json:"pts"`
 }
 
 type ballDontLieGame struct {
@@ -121,28 +121,28 @@ type ballDontLieSeasonAveragesResponse struct {
 }
 
 type ballDontLieSeasonAverage struct {
-	PlayerID     int     `json:"player_id"`
-	Season       int     `json:"season"`
-	GamesPlayed  int     `json:"games_played"`
-	Min          string  `json:"min"`
-	Fgm          float64 `json:"fgm"`
-	Fga          float64 `json:"fga"`
-	Fg3m         float64 `json:"fg3m"`
-	Fg3a         float64 `json:"fg3a"`
-	Ftm          float64 `json:"ftm"`
-	Fta          float64 `json:"fta"`
-	Oreb         float64 `json:"oreb"`
-	Dreb         float64 `json:"dreb"`
-	Reb          float64 `json:"reb"`
-	Ast          float64 `json:"ast"`
-	Stl          float64 `json:"stl"`
-	Blk          float64 `json:"blk"`
-	Turnover     float64 `json:"turnover"`
-	Pf           float64 `json:"pf"`
-	Pts          float64 `json:"pts"`
-	FgPct        float64 `json:"fg_pct"`
-	Fg3Pct       float64 `json:"fg3_pct"`
-	FtPct        float64 `json:"ft_pct"`
+	PlayerID    int     `json:"player_id"`
+	Season      int     `json:"season"`
+	GamesPlayed int     `json:"games_played"`
+	Min         string  `json:"min"`
+	Fgm         float64 `json:"fgm"`
+	Fga         float64 `json:"fga"`
+	Fg3m        float64 `json:"fg3m"`
+	Fg3a        float64 `json:"fg3a"`
+	Ftm         float64 `json:"ftm"`
+	Fta         float64 `json:"fta"`
+	Oreb        float64 `json:"oreb"`
+	Dreb        float64 `json:"dreb"`
+	Reb         float64 `json:"reb"`
+	Ast         float64 `json:"ast"`
+	Stl         float64 `json:"stl"`
+	Blk         float64 `json:"blk"`
+	Turnover    float64 `json:"turnover"`
+	Pf          float64 `json:"pf"`
+	Pts         float64 `json:"pts"`
+	FgPct       float64 `json:"fg_pct"`
+	Fg3Pct      float64 `json:"fg3_pct"`
+	FtPct       float64 `json:"ft_pct"`
 }
 
 // GetPlayers fetches NBA players (date parameter is ignored as API doesn't support date filtering)
@@ -152,7 +152,7 @@ func (c *BallDontLieClient) GetPlayers(sport dfs.Sport, date string) ([]dfs.Play
 	}
 
 	cacheKey := "balldontlie:nba:allplayers"
-	
+
 	// Check cache first
 	var cachedPlayers []dfs.PlayerData
 	err := c.cache.GetSimple(cacheKey, &cachedPlayers)
@@ -163,7 +163,7 @@ func (c *BallDontLieClient) GetPlayers(sport dfs.Sport, date string) ([]dfs.Play
 	// Fetch all active players (with pagination)
 	var allPlayers []dfs.PlayerData
 	cursor := ""
-	
+
 	for {
 		// Rate limiting
 		ctx := context.Background()
@@ -176,9 +176,9 @@ func (c *BallDontLieClient) GetPlayers(sport dfs.Sport, date string) ([]dfs.Play
 		if err != nil {
 			return nil, err
 		}
-		
+
 		allPlayers = append(allPlayers, players...)
-		
+
 		if nextCursor == "" {
 			break
 		}
@@ -200,7 +200,7 @@ func (c *BallDontLieClient) GetPlayer(sport dfs.Sport, externalID string) (*dfs.
 	}
 
 	cacheKey := fmt.Sprintf("balldontlie:player:%s", externalID)
-	
+
 	// Check cache first
 	var cachedPlayer dfs.PlayerData
 	err := c.cache.GetSimple(cacheKey, &cachedPlayer)
@@ -235,7 +235,7 @@ func (c *BallDontLieClient) GetPlayer(sport dfs.Sport, externalID string) (*dfs.
 	var playerResp struct {
 		Data ballDontLiePlayer `json:"data"`
 	}
-	
+
 	err = json.NewDecoder(resp.Body).Decode(&playerResp)
 	if err != nil {
 		return nil, err
@@ -248,10 +248,10 @@ func (c *BallDontLieClient) GetPlayer(sport dfs.Sport, externalID string) (*dfs.
 	}
 
 	playerData := c.convertToPlayerData(playerResp.Data, stats)
-	
+
 	// Cache for 24 hours
 	c.cache.SetSimple(cacheKey, playerData, 24*time.Hour)
-	
+
 	return &playerData, nil
 }
 
@@ -262,7 +262,7 @@ func (c *BallDontLieClient) GetTeamRoster(sport dfs.Sport, teamID string) ([]dfs
 	}
 
 	cacheKey := fmt.Sprintf("balldontlie:roster:%s", teamID)
-	
+
 	// Check cache first
 	var cachedRoster []dfs.PlayerData
 	err := c.cache.GetSimple(cacheKey, &cachedRoster)
@@ -274,7 +274,7 @@ func (c *BallDontLieClient) GetTeamRoster(sport dfs.Sport, teamID string) ([]dfs
 	// Note: BALLDONTLIE API requires filtering players by team_ids parameter
 	var roster []dfs.PlayerData
 	cursor := ""
-	
+
 	for {
 		// Rate limiting
 		ctx := context.Background()
@@ -313,7 +313,7 @@ func (c *BallDontLieClient) GetTeamRoster(sport dfs.Sport, teamID string) ([]dfs
 		for _, player := range playersResp.Data {
 			roster = append(roster, c.convertToPlayerData(player, nil))
 		}
-		
+
 		if playersResp.Meta.NextCursor == "" {
 			break
 		}
@@ -376,9 +376,9 @@ func (c *BallDontLieClient) getPlayerSeasonAverages(playerID int) (map[string]fl
 
 	currentYear := time.Now().Year()
 	season := currentYear - 1 // NBA season typically runs Oct-June
-	
+
 	url := fmt.Sprintf("https://api.balldontlie.io/v1/season_averages?season=%d&player_ids[]=%d", season, playerID)
-	
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -407,16 +407,16 @@ func (c *BallDontLieClient) getPlayerSeasonAverages(playerID int) (map[string]fl
 
 	avg := averagesResp.Data[0]
 	return map[string]float64{
-		"pts":        avg.Pts,
-		"reb":        avg.Reb,
-		"ast":        avg.Ast,
-		"stl":        avg.Stl,
-		"blk":        avg.Blk,
-		"fg_pct":     avg.FgPct,
-		"fg3_pct":    avg.Fg3Pct,
-		"ft_pct":     avg.FtPct,
-		"min":        c.parseMinutes(avg.Min),
-		"games":      float64(avg.GamesPlayed),
+		"pts":     avg.Pts,
+		"reb":     avg.Reb,
+		"ast":     avg.Ast,
+		"stl":     avg.Stl,
+		"blk":     avg.Blk,
+		"fg_pct":  avg.FgPct,
+		"fg3_pct": avg.Fg3Pct,
+		"ft_pct":  avg.FtPct,
+		"min":     c.parseMinutes(avg.Min),
+		"games":   float64(avg.GamesPlayed),
 	}, nil
 }
 
@@ -426,11 +426,14 @@ func (c *BallDontLieClient) convertToPlayerData(player ballDontLiePlayer, stats 
 		stats = make(map[string]float64)
 	}
 
+	// Normalize position with better distribution
+	position := c.normalizePositionWithStats(player, stats)
+
 	return dfs.PlayerData{
 		ExternalID:  strconv.Itoa(player.ID),
 		Name:        fmt.Sprintf("%s %s", player.FirstName, player.LastName),
 		Team:        player.Team.Abbreviation,
-		Position:    c.normalizePosition(player.Position),
+		Position:    position,
 		Stats:       stats,
 		ImageURL:    "", // BALLDONTLIE doesn't provide player images
 		LastUpdated: time.Now(),
@@ -438,21 +441,87 @@ func (c *BallDontLieClient) convertToPlayerData(player ballDontLiePlayer, stats 
 	}
 }
 
+// normalizePositionWithStats uses player stats to better determine position
+func (c *BallDontLieClient) normalizePositionWithStats(player ballDontLiePlayer, stats map[string]float64) string {
+	position := strings.ToUpper(player.Position)
+
+	// If position is already specific, use it
+	if position == "PG" || position == "SG" || position == "SF" || position == "PF" || position == "C" {
+		return position
+	}
+
+	// For generic positions, use stats and player attributes
+	switch position {
+	case "G":
+		// Use assists and player ID for distribution
+		// High assist players are more likely PG
+		if stats["ast"] > 0 {
+			if stats["ast"] > 5.0 {
+				return "PG"
+			}
+			return "SG"
+		}
+		// Use player ID for even distribution when no stats
+		if player.ID%2 == 0 {
+			return "PG"
+		}
+		return "SG"
+
+	case "F":
+		// Use rebounds and blocks to differentiate
+		// Higher rebounds/blocks suggest PF
+		if stats["reb"] > 0 || stats["blk"] > 0 {
+			if stats["reb"] > 7.0 || stats["blk"] > 1.0 {
+				return "PF"
+			}
+			return "SF"
+		}
+		// Use player ID for even distribution when no stats
+		if player.ID%2 == 0 {
+			return "SF"
+		}
+		return "PF"
+
+	default:
+		// Fall back to original normalization
+		return c.normalizePosition(position)
+	}
+}
+
 // normalizePosition converts position to standard format
 func (c *BallDontLieClient) normalizePosition(position string) string {
 	// BALLDONTLIE uses G, F, C format
+	// We need to distribute generic positions better
 	switch strings.ToUpper(position) {
 	case "G":
-		return "PG" // Default guards to PG
+		// Distribute guards between PG and SG
+		// In production, we'd use player stats/role to determine
+		// For now, alternate based on player ID or name hash
+		return "PG" // Will be improved with smarter distribution
 	case "F":
-		return "SF" // Default forwards to SF
+		// Distribute forwards between SF and PF
+		return "SF" // Will be improved with smarter distribution
 	case "C":
 		return "C"
 	case "G-F":
-		return "SG"
+		return "SG" // Combo guard-forward typically plays SG
 	case "F-C":
-		return "PF"
+		return "PF" // Forward-center typically plays PF
+	case "F-G":
+		return "SF" // Forward-guard typically plays SF
 	default:
+		// Check for specific positions
+		if strings.Contains(strings.ToUpper(position), "PG") {
+			return "PG"
+		} else if strings.Contains(strings.ToUpper(position), "SG") {
+			return "SG"
+		} else if strings.Contains(strings.ToUpper(position), "SF") {
+			return "SF"
+		} else if strings.Contains(strings.ToUpper(position), "PF") {
+			return "PF"
+		} else if strings.Contains(strings.ToUpper(position), "C") {
+			return "C"
+		}
 		return position
 	}
 }
@@ -463,9 +532,9 @@ func (c *BallDontLieClient) parseMinutes(minStr string) float64 {
 	if len(parts) != 2 {
 		return 0
 	}
-	
+
 	minutes, _ := strconv.ParseFloat(parts[0], 64)
 	seconds, _ := strconv.ParseFloat(parts[1], 64)
-	
+
 	return minutes + (seconds / 60)
 }

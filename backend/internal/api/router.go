@@ -2,7 +2,7 @@ package api
 
 import (
 	"fmt"
-	
+
 	"github.com/gin-gonic/gin"
 	"github.com/jstittsworth/dfs-optimizer/internal/api/handlers"
 	"github.com/jstittsworth/dfs-optimizer/internal/api/middleware"
@@ -16,13 +16,13 @@ import (
 func SetupRoutes(group *gin.RouterGroup, db *database.DB, cache *services.CacheService, wsHub *services.WebSocketHub, cfg *config.Config, aggregator *services.DataAggregator, dataFetcher *services.DataFetcherService) {
 	// Initialize services
 	aiService := services.NewAIRecommendationService(db, cfg, cache)
-	
+
 	// Initialize handlers
 	playerHandler := handlers.NewPlayerHandler(db, cache, aggregator, dataFetcher)
 	lineupHandler := handlers.NewLineupHandler(db, cache)
 	optimizerHandler := handlers.NewOptimizerHandler(db, cache, cfg)
 	simulationHandler := handlers.NewSimulationHandler(db, cache, wsHub)
-	contestHandler := handlers.NewContestHandler(db, cache)
+	contestHandler := handlers.NewContestHandler(db, cache, dataFetcher)
 	exportHandler := handlers.NewExportHandler(db)
 	glossaryHandler := handlers.NewGlossaryHandler(db, cache)
 	preferencesHandler := handlers.NewPreferencesHandler(db, cache)
@@ -30,8 +30,8 @@ func SetupRoutes(group *gin.RouterGroup, db *database.DB, cache *services.CacheS
 	// Create a logger for the golf handler
 	// TODO: Add logger to config or use a global logger
 	logger := logrus.New()
-	golfHandler := handlers.NewGolfHandler(db, cache, logger)
-	
+	golfHandler := handlers.NewGolfHandler(db, cache, logger, cfg)
+
 	// Log that we're setting up routes
 	fmt.Println("DEBUG: Setting up API routes...")
 
@@ -40,6 +40,11 @@ func SetupRoutes(group *gin.RouterGroup, db *database.DB, cache *services.CacheS
 	group.GET("/contests", contestHandler.ListContests)
 	group.GET("/contests/:id", contestHandler.GetContest)
 	group.GET("/contests/:id/players", playerHandler.GetPlayers)
+	group.POST("/contests/:id/fetch-data", contestHandler.FetchContestData)
+	group.GET("/contests/:id/data-status", contestHandler.GetContestDataStatus)
+	group.POST("/contests/:id/sync", contestHandler.SyncContest)
+	group.POST("/contests/discover", contestHandler.DiscoverContests)
+	group.GET("/contests/discovery/status", contestHandler.GetContestDiscoveryStatus)
 
 	// Player endpoints
 	group.GET("/players/:id", playerHandler.GetPlayer)
@@ -62,12 +67,22 @@ func SetupRoutes(group *gin.RouterGroup, db *database.DB, cache *services.CacheS
 	// TODO: Re-enable authentication in production
 	group.POST("/optimize", optimizerHandler.OptimizeLineups)
 	group.POST("/optimize/validate", optimizerHandler.ValidateLineup)
-	
-	// User preferences endpoints (temporarily public for development)
-	// TODO: Re-enable authentication in production
-	group.GET("/user/preferences", preferencesHandler.GetPreferences)
-	group.PUT("/user/preferences", preferencesHandler.UpdatePreferences)
-	group.POST("/user/preferences/reset", preferencesHandler.ResetPreferences)
+
+	// User preferences endpoints (with optional authentication)
+	prefGroup := group.Group("/user/preferences")
+	prefGroup.Use(middleware.OptionalAuth(cfg.JWTSecret))
+	{
+		prefGroup.GET("", preferencesHandler.GetPreferences)
+		prefGroup.PUT("", preferencesHandler.UpdatePreferences)
+		prefGroup.POST("/reset", preferencesHandler.ResetPreferences)
+	}
+
+	// Authenticated preference migration endpoint
+	authPrefGroup := group.Group("/user/preferences")
+	authPrefGroup.Use(middleware.AuthRequired(cfg.JWTSecret))
+	{
+		authPrefGroup.POST("/migrate", preferencesHandler.MigratePreferences)
+	}
 
 	// AI recommendation endpoints (temporarily public for development)
 	// TODO: Re-enable authentication in production
@@ -77,6 +92,7 @@ func SetupRoutes(group *gin.RouterGroup, db *database.DB, cache *services.CacheS
 
 	// Golf endpoints
 	group.GET("/golf/tournaments", golfHandler.ListTournaments)
+	group.GET("/golf/tournaments/schedule", golfHandler.GetTournamentSchedule)
 	group.GET("/golf/tournaments/:id", golfHandler.GetTournament)
 	group.GET("/golf/tournaments/:id/leaderboard", golfHandler.GetTournamentLeaderboard)
 	group.GET("/golf/tournaments/:id/players", golfHandler.GetTournamentPlayers)

@@ -31,7 +31,7 @@ func (h *LineupHandler) GetLineups(c *gin.Context) {
 	// TODO: In production, re-enable authentication
 	// For development, use a default user ID
 	userID := uint(1) // Default user for development
-	
+
 	// Query parameters
 	contestID := c.Query("contest_id")
 	isSubmitted := c.Query("submitted")
@@ -60,12 +60,20 @@ func (h *LineupHandler) GetLineups(c *gin.Context) {
 	query = query.Offset(offset).Limit(perPage).Order(sortBy + " " + sortOrder)
 
 	// Preload associations
-	query = query.Preload("Contest").Preload("Players")
+	query = query.Preload("Contest")
 
 	var lineups []models.Lineup
 	if err := query.Find(&lineups).Error; err != nil {
 		utils.SendInternalError(c, "Failed to fetch lineups")
 		return
+	}
+
+	// Load players for each lineup
+	for i := range lineups {
+		if err := lineups[i].LoadPlayers(h.db.DB); err != nil {
+			utils.SendInternalError(c, "Failed to load lineup players")
+			return
+		}
 	}
 
 	// Calculate metadata
@@ -96,7 +104,7 @@ func (h *LineupHandler) GetLineup(c *gin.Context) {
 	}
 
 	var lineup models.Lineup
-	err = h.db.Preload("Contest").Preload("Players").
+	err = h.db.Preload("Contest").
 		Where("id = ? AND user_id = ?", lineupID, userID).
 		First(&lineup).Error
 
@@ -106,6 +114,12 @@ func (h *LineupHandler) GetLineup(c *gin.Context) {
 		} else {
 			utils.SendInternalError(c, "Failed to fetch lineup")
 		}
+		return
+	}
+
+	// Load players for the lineup
+	if err := lineup.LoadPlayers(h.db.DB); err != nil {
+		utils.SendInternalError(c, "Failed to load lineup players")
 		return
 	}
 
@@ -168,11 +182,45 @@ func (h *LineupHandler) CreateLineup(c *gin.Context) {
 		return
 	}
 
-	// Save lineup
-	if err := h.db.Create(&lineup).Error; err != nil {
+	// Initialize player positions for manual lineup (each player fills their natural position)
+	lineup.PlayerPositions = make(map[uint]string)
+	for _, player := range lineup.Players {
+		lineup.PlayerPositions[player.ID] = player.Position
+	}
+
+	// Store players temporarily and clear from lineup to prevent GORM association
+	savedPlayers := lineup.Players
+	lineup.Players = nil
+
+	// Save lineup with custom transaction to handle positions
+	tx := h.db.Begin()
+	if err := tx.Create(&lineup).Error; err != nil {
+		tx.Rollback()
 		utils.SendInternalError(c, "Failed to create lineup")
 		return
 	}
+
+	// Save player positions in join table
+	for _, player := range savedPlayers {
+		lineupPlayer := models.LineupPlayer{
+			LineupID: lineup.ID,
+			PlayerID: player.ID,
+			Position: player.Position,
+		}
+		if err := tx.Create(&lineupPlayer).Error; err != nil {
+			tx.Rollback()
+			utils.SendInternalError(c, "Failed to save lineup players")
+			return
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		utils.SendInternalError(c, "Failed to save lineup")
+		return
+	}
+
+	// Restore players for response
+	lineup.Players = savedPlayers
 
 	// Clear cache
 	ctx := context.Background()
@@ -248,18 +296,41 @@ func (h *LineupHandler) UpdateLineup(c *gin.Context) {
 		}
 	}
 
-	// Save updates
-	if err := h.db.Save(&lineup).Error; err != nil {
+	// Save updates with transaction
+	tx := h.db.Begin()
+	if err := tx.Save(&lineup).Error; err != nil {
+		tx.Rollback()
 		utils.SendInternalError(c, "Failed to update lineup")
 		return
 	}
 
-	// Update associations
+	// Update player associations if provided
 	if len(req.PlayerIDs) > 0 {
-		if err := h.db.Model(&lineup).Association("Players").Replace(lineup.Players); err != nil {
+		// Delete existing lineup players
+		if err := tx.Where("lineup_id = ?", lineup.ID).Delete(&models.LineupPlayer{}).Error; err != nil {
+			tx.Rollback()
 			utils.SendInternalError(c, "Failed to update lineup players")
 			return
 		}
+
+		// Add new lineup players
+		for _, player := range lineup.Players {
+			lineupPlayer := models.LineupPlayer{
+				LineupID: lineup.ID,
+				PlayerID: player.ID,
+				Position: player.Position,
+			}
+			if err := tx.Create(&lineupPlayer).Error; err != nil {
+				tx.Rollback()
+				utils.SendInternalError(c, "Failed to update lineup players")
+				return
+			}
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		utils.SendInternalError(c, "Failed to update lineup")
+		return
 	}
 
 	// Clear cache
@@ -267,8 +338,12 @@ func (h *LineupHandler) UpdateLineup(c *gin.Context) {
 	cacheKey := services.LineupCacheKey(userID, lineup.ContestID)
 	h.cache.Delete(ctx, cacheKey)
 
-	// Reload with associations
-	h.db.Preload("Players").First(&lineup, lineup.ID)
+	// Reload lineup with players
+	h.db.First(&lineup, lineup.ID)
+	if err := lineup.LoadPlayers(h.db.DB); err != nil {
+		utils.SendInternalError(c, "Failed to load lineup players")
+		return
+	}
 
 	utils.SendSuccess(c, lineup)
 }

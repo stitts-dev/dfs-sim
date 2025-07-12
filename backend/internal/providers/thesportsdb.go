@@ -31,7 +31,7 @@ func NewTheSportsDBClient(cache dfs.CacheProvider, logger *logrus.Logger) *TheSp
 		cache:       cache,
 		logger:      logger,
 		rateLimiter: rate.NewLimiter(rate.Every(2*time.Second), 1), // 30 requests per minute
-		apiKey:      "3", // Free tier API key
+		apiKey:      "3",                                           // Free tier API key
 	}
 }
 
@@ -41,24 +41,24 @@ type sportsDBPlayersResponse struct {
 }
 
 type sportsDBPlayer struct {
-	IDPlayer           string `json:"idPlayer"`
-	IDTeam             string `json:"idTeam"`
-	StrPlayer          string `json:"strPlayer"`
-	StrNationality     string `json:"strNationality"`
-	StrTeam            string `json:"strTeam"`
-	StrSport           string `json:"strSport"`
-	StrPosition        string `json:"strPosition"`
-	StrHeight          string `json:"strHeight"`
-	StrWeight          string `json:"strWeight"`
-	StrThumb           string `json:"strThumb"`
-	StrCutout          string `json:"strCutout"`
-	StrRender          string `json:"strRender"`
-	StrBanner          string `json:"strBanner"`
-	StrFanart1         string `json:"strFanart1"`
-	StrFanart2         string `json:"strFanart2"`
-	StrFanart3         string `json:"strFanart3"`
-	StrFanart4         string `json:"strFanart4"`
-	StrDescriptionEN   string `json:"strDescriptionEN"`
+	IDPlayer         string `json:"idPlayer"`
+	IDTeam           string `json:"idTeam"`
+	StrPlayer        string `json:"strPlayer"`
+	StrNationality   string `json:"strNationality"`
+	StrTeam          string `json:"strTeam"`
+	StrSport         string `json:"strSport"`
+	StrPosition      string `json:"strPosition"`
+	StrHeight        string `json:"strHeight"`
+	StrWeight        string `json:"strWeight"`
+	StrThumb         string `json:"strThumb"`
+	StrCutout        string `json:"strCutout"`
+	StrRender        string `json:"strRender"`
+	StrBanner        string `json:"strBanner"`
+	StrFanart1       string `json:"strFanart1"`
+	StrFanart2       string `json:"strFanart2"`
+	StrFanart3       string `json:"strFanart3"`
+	StrFanart4       string `json:"strFanart4"`
+	StrDescriptionEN string `json:"strDescriptionEN"`
 }
 
 type sportsDBTeamsResponse struct {
@@ -66,12 +66,12 @@ type sportsDBTeamsResponse struct {
 }
 
 type sportsDBTeam struct {
-	IDTeam        string `json:"idTeam"`
-	StrTeam       string `json:"strTeam"`
-	StrTeamShort  string `json:"strTeamShort"`
-	StrAlternate  string `json:"strAlternate"`
-	StrSport      string `json:"strSport"`
-	StrLeague     string `json:"strLeague"`
+	IDTeam       string `json:"idTeam"`
+	StrTeam      string `json:"strTeam"`
+	StrTeamShort string `json:"strTeamShort"`
+	StrAlternate string `json:"strAlternate"`
+	StrSport     string `json:"strSport"`
+	StrLeague    string `json:"strLeague"`
 }
 
 // GetPlayers searches for players by date (not directly supported, will search by team)
@@ -84,7 +84,7 @@ func (c *TheSportsDBClient) GetPlayers(sport dfs.Sport, date string) ([]dfs.Play
 // GetPlayer searches for a specific player by name
 func (c *TheSportsDBClient) GetPlayer(sport dfs.Sport, playerName string) (*dfs.PlayerData, error) {
 	cacheKey := fmt.Sprintf("thesportsdb:player:%s", playerName)
-	
+
 	// Check cache first
 	var cachedPlayer dfs.PlayerData
 	err := c.cache.GetSimple(cacheKey, &cachedPlayer)
@@ -96,7 +96,7 @@ func (c *TheSportsDBClient) GetPlayer(sport dfs.Sport, playerName string) (*dfs.
 	c.rateLimiter.Wait(nil)
 
 	// Search for player
-	searchURL := fmt.Sprintf("https://www.thesportsdb.com/api/v1/json/%s/searchplayers.php?p=%s", 
+	searchURL := fmt.Sprintf("https://www.thesportsdb.com/api/v1/json/%s/searchplayers.php?p=%s",
 		c.apiKey, url.QueryEscape(playerName))
 
 	var playersResp sportsDBPlayersResponse
@@ -112,7 +112,7 @@ func (c *TheSportsDBClient) GetPlayer(sport dfs.Sport, playerName string) (*dfs.
 	// Find best match based on sport
 	var bestMatch *sportsDBPlayer
 	sportName := c.getSportName(sport)
-	
+
 	for i := range playersResp.Player {
 		player := &playersResp.Player[i]
 		if strings.EqualFold(player.StrSport, sportName) {
@@ -130,17 +130,17 @@ func (c *TheSportsDBClient) GetPlayer(sport dfs.Sport, playerName string) (*dfs.
 	}
 
 	playerData := c.convertToPlayerData(*bestMatch)
-	
+
 	// Cache for 24 hours
 	c.cache.SetSimple(cacheKey, playerData, 24*time.Hour)
-	
+
 	return &playerData, nil
 }
 
 // GetTeamRoster fetches all players for a specific team
 func (c *TheSportsDBClient) GetTeamRoster(sport dfs.Sport, teamName string) ([]dfs.PlayerData, error) {
 	cacheKey := fmt.Sprintf("thesportsdb:roster:%s:%s", sport, teamName)
-	
+
 	// Check cache first
 	var cachedRoster []dfs.PlayerData
 	err := c.cache.GetSimple(cacheKey, &cachedRoster)
@@ -158,7 +158,7 @@ func (c *TheSportsDBClient) GetTeamRoster(sport dfs.Sport, teamName string) ([]d
 	c.rateLimiter.Wait(nil)
 
 	// Get all players for the team
-	rosterURL := fmt.Sprintf("https://www.thesportsdb.com/api/v1/json/%s/lookup_all_players.php?id=%s", 
+	rosterURL := fmt.Sprintf("https://www.thesportsdb.com/api/v1/json/%s/lookup_all_players.php?id=%s",
 		c.apiKey, teamID)
 
 	var playersResp sportsDBPlayersResponse
@@ -185,7 +185,7 @@ func (c *TheSportsDBClient) searchTeamID(teamName string, sport dfs.Sport) (stri
 	// Rate limiting
 	c.rateLimiter.Wait(nil)
 
-	searchURL := fmt.Sprintf("https://www.thesportsdb.com/api/v1/json/%s/searchteams.php?t=%s", 
+	searchURL := fmt.Sprintf("https://www.thesportsdb.com/api/v1/json/%s/searchteams.php?t=%s",
 		c.apiKey, url.QueryEscape(teamName))
 
 	var teamsResp sportsDBTeamsResponse
@@ -237,7 +237,7 @@ func (c *TheSportsDBClient) convertToPlayerData(player sportsDBPlayer) dfs.Playe
 func (c *TheSportsDBClient) normalizePosition(position string) string {
 	// Map common position variations to standard abbreviations
 	position = strings.ToUpper(strings.TrimSpace(position))
-	
+
 	// NFL positions
 	switch position {
 	case "QUARTERBACK":
@@ -251,7 +251,7 @@ func (c *TheSportsDBClient) normalizePosition(position string) string {
 	case "DEFENSE", "DEFENSIVE":
 		return "DST"
 	}
-	
+
 	// NBA positions
 	switch position {
 	case "POINT GUARD":
@@ -265,9 +265,9 @@ func (c *TheSportsDBClient) normalizePosition(position string) string {
 	case "CENTER":
 		return "C"
 	}
-	
+
 	// MLB positions are typically already abbreviated
-	
+
 	return position
 }
 
@@ -278,11 +278,11 @@ func (c *TheSportsDBClient) makeRequest(url string, target interface{}) error {
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
-	
+
 	return json.NewDecoder(resp.Body).Decode(target)
 }
 

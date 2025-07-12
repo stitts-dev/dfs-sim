@@ -49,7 +49,7 @@ func (ws *WeatherService) GetWeatherConditions(ctx context.Context, location str
 // GetGolfWeatherImpact calculates weather impact specifically for golf
 func (ws *WeatherService) GetGolfWeatherImpact(conditions models.WeatherConditions) float64 {
 	impact := 1.0
-	
+
 	// Wind is the biggest factor in golf
 	if conditions.WindSpeed > 25 {
 		impact *= 1.08 // Very difficult conditions
@@ -60,18 +60,18 @@ func (ws *WeatherService) GetGolfWeatherImpact(conditions models.WeatherConditio
 	} else if conditions.WindSpeed > 10 {
 		impact *= 1.02
 	}
-	
+
 	// Rain impact
 	if conditions.Conditions == "rain" || conditions.Conditions == "heavy_rain" {
 		impact *= 1.05
 	} else if conditions.Conditions == "light_rain" || conditions.Conditions == "drizzle" {
 		impact *= 1.02
 	}
-	
+
 	// Temperature extremes
 	if conditions.Temperature < 45 || conditions.Temperature > 95 {
 		impact *= 1.03
 	}
-	
+
 	return impact
 }

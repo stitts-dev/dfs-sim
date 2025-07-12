@@ -36,11 +36,11 @@ type espnScoreboardResponse struct {
 		Date         string `json:"date"`
 		Name         string `json:"name"`
 		Competitions []struct {
-			ID         string `json:"id"`
+			ID          string `json:"id"`
 			Competitors []struct {
-				ID         string `json:"id"`
-				HomeAway   string `json:"homeAway"`
-				Team       espnTeam `json:"team"`
+				ID         string                   `json:"id"`
+				HomeAway   string                   `json:"homeAway"`
+				Team       espnTeam                 `json:"team"`
 				Statistics []map[string]interface{} `json:"statistics"`
 			} `json:"competitors"`
 		} `json:"competitions"`
@@ -93,7 +93,7 @@ type espnTeamResponse struct {
 // GetPlayers fetches players for a specific sport and date
 func (c *ESPNClient) GetPlayers(sport dfs.Sport, date string) ([]dfs.PlayerData, error) {
 	cacheKey := fmt.Sprintf("espn:%s:players:%s", sport, date)
-	
+
 	// Check cache first
 	var cachedPlayers []dfs.PlayerData
 	err := c.cache.GetSimple(cacheKey, &cachedPlayers)
@@ -137,7 +137,7 @@ func (c *ESPNClient) GetPlayer(sport dfs.Sport, externalID string) (*dfs.PlayerD
 // GetTeamRoster fetches the roster for a specific team
 func (c *ESPNClient) GetTeamRoster(sport dfs.Sport, teamID string) ([]dfs.PlayerData, error) {
 	cacheKey := fmt.Sprintf("espn:%s:roster:%s", sport, teamID)
-	
+
 	// Check cache first
 	var cachedRoster []dfs.PlayerData
 	err := c.cache.GetSimple(cacheKey, &cachedRoster)
@@ -147,7 +147,7 @@ func (c *ESPNClient) GetTeamRoster(sport dfs.Sport, teamID string) ([]dfs.Player
 
 	url := c.getTeamURL(sport, teamID)
 	var teamResp espnTeamResponse
-	
+
 	err = c.makeRequest(url, &teamResp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch team roster: %w", err)
@@ -180,34 +180,34 @@ func (c *ESPNClient) GetTeamRoster(sport dfs.Sport, teamID string) ([]dfs.Player
 func (c *ESPNClient) makeRequest(url string, target interface{}) error {
 	var resp *http.Response
 	var err error
-	
+
 	// Implement exponential backoff
 	for attempt := 0; attempt < 3; attempt++ {
 		resp, err = c.httpClient.Get(url)
 		if err == nil && resp.StatusCode == http.StatusOK {
 			break
 		}
-		
+
 		if resp != nil {
 			resp.Body.Close()
 		}
-		
+
 		// Exponential backoff
 		waitTime := time.Duration(math.Pow(2, float64(attempt))) * time.Second
 		c.logger.Warnf("Request failed (attempt %d), waiting %v: %v", attempt+1, waitTime, err)
 		time.Sleep(waitTime)
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("request failed after retries: %w", err)
 	}
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
-	
+
 	defer resp.Body.Close()
-	
+
 	return json.NewDecoder(resp.Body).Decode(target)
 }
 
@@ -244,18 +244,18 @@ func (c *ESPNClient) fetchActiveTeams(scoreboardURL, date string) ([]string, err
 // extractPlayerStats converts ESPN statistics to our format
 func (c *ESPNClient) extractPlayerStats(statistics interface{}) map[string]float64 {
 	stats := make(map[string]float64)
-	
+
 	// ESPN stats structure is complex and varies by sport
 	// This is a simplified extraction
 	// In a real implementation, you'd parse the nested statistics structure
-	
+
 	return stats
 }
 
 // getScoreboardURL returns the scoreboard URL for a sport
 func (c *ESPNClient) getScoreboardURL(sport dfs.Sport) string {
 	baseURL := "http://site.api.espn.com/apis/site/v2/sports"
-	
+
 	switch sport {
 	case dfs.SportNBA:
 		return fmt.Sprintf("%s/basketball/nba/scoreboard", baseURL)
@@ -271,7 +271,7 @@ func (c *ESPNClient) getScoreboardURL(sport dfs.Sport) string {
 // getTeamURL returns the team detail URL for a sport
 func (c *ESPNClient) getTeamURL(sport dfs.Sport, teamID string) string {
 	baseURL := "http://site.api.espn.com/apis/site/v2/sports"
-	
+
 	switch sport {
 	case dfs.SportNBA:
 		return fmt.Sprintf("%s/basketball/nba/teams/%s?enable=roster,stats", baseURL, teamID)

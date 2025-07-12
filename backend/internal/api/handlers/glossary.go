@@ -103,7 +103,7 @@ func (h *GlossaryHandler) SearchGlossaryTerms(c *gin.Context) {
 // GET /api/glossary/:term (can be ID or term name)
 func (h *GlossaryHandler) GetGlossaryTerm(c *gin.Context) {
 	termParam := c.Param("term")
-	
+
 	var term models.GlossaryTerm
 	var err error
 
