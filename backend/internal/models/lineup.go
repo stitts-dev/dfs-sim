@@ -3,6 +3,8 @@ package models
 import (
 	"fmt"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type Lineup struct {
@@ -25,8 +27,8 @@ type Lineup struct {
 
 	// Associations
 	Contest Contest  `gorm:"foreignKey:ContestID" json:"contest,omitempty"`
-	Players []Player `gorm:"many2many:lineup_players;" json:"players"`
-	
+	Players []Player `gorm:"-" json:"players"`
+
 	// Position assignments for each player (not stored in DB, used for saving)
 	PlayerPositions map[uint]string `gorm:"-" json:"player_positions,omitempty"`
 }
@@ -182,4 +184,22 @@ func (l *Lineup) Clone() *Lineup {
 
 	copy(clone.Players, l.Players)
 	return clone
+}
+
+// LoadPlayers loads the players for this lineup from the database
+func (l *Lineup) LoadPlayers(db *gorm.DB) error {
+	var lineupPlayers []LineupPlayer
+	if err := db.Where("lineup_id = ?", l.ID).Find(&lineupPlayers).Error; err != nil {
+		return err
+	}
+
+	playerIDs := make([]uint, len(lineupPlayers))
+	l.PlayerPositions = make(map[uint]string)
+
+	for i, lp := range lineupPlayers {
+		playerIDs[i] = lp.PlayerID
+		l.PlayerPositions[lp.PlayerID] = lp.Position
+	}
+
+	return db.Where("id IN ?", playerIDs).Find(&l.Players).Error
 }

@@ -42,6 +42,10 @@ Thumbs.db
 # Backend specific
 backend/bin/
 backend/tmp/
+backend/server
+backend/test-build
+backend/migrate
+backend/main
 
 # Frontend specific
 frontend/node_modules/

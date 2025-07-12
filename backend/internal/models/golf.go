@@ -34,11 +34,11 @@ const (
 
 // WeatherConditions represents weather data for a golf tournament
 type WeatherConditions struct {
-	Temperature  int    `json:"temperature"`
-	WindSpeed    int    `json:"wind_speed"`
-	WindDir      string `json:"wind_direction"`
-	Conditions   string `json:"conditions"`
-	Humidity     int    `json:"humidity"`
+	Temperature int    `json:"temperature"`
+	WindSpeed   int    `json:"wind_speed"`
+	WindDir     string `json:"wind_direction"`
+	Conditions  string `json:"conditions"`
+	Humidity    int    `json:"humidity"`
 }
 
 // Value implements driver.Valuer for database storage
@@ -132,21 +132,21 @@ func (e *GolfPlayerEntry) GetProjectedScore(courseHistory *GolfCourseHistory) fl
 
 // GolfRoundScore represents scoring data for a single round
 type GolfRoundScore struct {
-	ID             uuid.UUID           `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
-	EntryID        uuid.UUID           `gorm:"not null" json:"entry_id"`
-	Entry          *GolfPlayerEntry    `gorm:"foreignKey:EntryID" json:"entry,omitempty"`
-	RoundNumber    int                 `gorm:"not null;check:round_number BETWEEN 1 AND 4" json:"round_number"`
-	HolesCompleted int                 `gorm:"default:0" json:"holes_completed"`
-	Score          int                 `json:"score"`
-	Strokes        int                 `json:"strokes"`
-	Birdies        int                 `gorm:"default:0" json:"birdies"`
-	Eagles         int                 `gorm:"default:0" json:"eagles"`
-	Bogeys         int                 `gorm:"default:0" json:"bogeys"`
-	DoubleBogeys   int                 `gorm:"default:0" json:"double_bogeys"`
-	HoleScores     map[string]int      `gorm:"type:jsonb" json:"hole_scores"`
-	StartedAt      *time.Time          `json:"started_at"`
-	CompletedAt    *time.Time          `json:"completed_at"`
-	CreatedAt      time.Time           `json:"created_at"`
+	ID             uuid.UUID        `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
+	EntryID        uuid.UUID        `gorm:"not null" json:"entry_id"`
+	Entry          *GolfPlayerEntry `gorm:"foreignKey:EntryID" json:"entry,omitempty"`
+	RoundNumber    int              `gorm:"not null;check:round_number BETWEEN 1 AND 4" json:"round_number"`
+	HolesCompleted int              `gorm:"default:0" json:"holes_completed"`
+	Score          int              `json:"score"`
+	Strokes        int              `json:"strokes"`
+	Birdies        int              `gorm:"default:0" json:"birdies"`
+	Eagles         int              `gorm:"default:0" json:"eagles"`
+	Bogeys         int              `gorm:"default:0" json:"bogeys"`
+	DoubleBogeys   int              `gorm:"default:0" json:"double_bogeys"`
+	HoleScores     map[string]int   `gorm:"type:jsonb" json:"hole_scores"`
+	StartedAt      *time.Time       `json:"started_at"`
+	CompletedAt    *time.Time       `json:"completed_at"`
+	CreatedAt      time.Time        `json:"created_at"`
 }
 
 // TableName specifies the table name for GORM
@@ -156,28 +156,28 @@ func (GolfRoundScore) TableName() string {
 
 // GolfCourseHistory represents a player's historical performance at a specific course
 type GolfCourseHistory struct {
-	ID                uuid.UUID  `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
-	PlayerID          uint       `gorm:"not null" json:"player_id"`
-	Player            *Player    `gorm:"foreignKey:PlayerID" json:"player,omitempty"`
-	CourseID          string     `gorm:"not null" json:"course_id"`
-	TournamentsPlayed int        `gorm:"default:0" json:"tournaments_played"`
-	RoundsPlayed      int        `gorm:"default:0" json:"rounds_played"`
-	TotalStrokes      int        `json:"total_strokes"`
-	ScoringAvg        float64    `json:"scoring_avg"`
-	AdjScoringAvg     float64    `json:"adj_scoring_avg"`
-	BestFinish        int        `json:"best_finish"`
-	WorstFinish       int        `json:"worst_finish"`
-	CutsMade          int        `json:"cuts_made"`
-	MissedCuts        int        `json:"missed_cuts"`
-	Top10s            int        `json:"top_10s"`
-	Top25s            int        `json:"top_25s"`
-	Wins              int        `json:"wins"`
-	StrokesGainedTotal float64   `json:"strokes_gained_total"`
-	SGTeeToGreen      float64    `json:"sg_tee_to_green"`
-	SGPutting         float64    `json:"sg_putting"`
-	LastPlayed        *time.Time `json:"last_played"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID                 uuid.UUID  `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
+	PlayerID           uint       `gorm:"not null" json:"player_id"`
+	Player             *Player    `gorm:"foreignKey:PlayerID" json:"player,omitempty"`
+	CourseID           string     `gorm:"not null" json:"course_id"`
+	TournamentsPlayed  int        `gorm:"default:0" json:"tournaments_played"`
+	RoundsPlayed       int        `gorm:"default:0" json:"rounds_played"`
+	TotalStrokes       int        `json:"total_strokes"`
+	ScoringAvg         float64    `json:"scoring_avg"`
+	AdjScoringAvg      float64    `json:"adj_scoring_avg"`
+	BestFinish         int        `json:"best_finish"`
+	WorstFinish        int        `json:"worst_finish"`
+	CutsMade           int        `json:"cuts_made"`
+	MissedCuts         int        `json:"missed_cuts"`
+	Top10s             int        `json:"top_10s"`
+	Top25s             int        `json:"top_25s"`
+	Wins               int        `json:"wins"`
+	StrokesGainedTotal float64    `json:"strokes_gained_total"`
+	SGTeeToGreen       float64    `json:"sg_tee_to_green"`
+	SGPutting          float64    `json:"sg_putting"`
+	LastPlayed         *time.Time `json:"last_played"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 // TableName specifies the table name for GORM
@@ -201,8 +201,8 @@ type GolfProjection struct {
 
 // HoleScore represents the score for a single hole
 type HoleScore struct {
-	Hole   int `json:"hole"`
-	Par    int `json:"par"`
-	Score  int `json:"score"`
-	Yards  int `json:"yards"`
+	Hole  int `json:"hole"`
+	Par   int `json:"par"`
+	Score int `json:"score"`
+	Yards int `json:"yards"`
 }

@@ -30,16 +30,16 @@ type TeamInfo struct {
 
 // GlossaryTerm stores DFS terminology and explanations
 type GlossaryTerm struct {
-	ID           uint                   `gorm:"primaryKey" json:"id"`
-	Term         string                 `gorm:"uniqueIndex;size:100;not null" json:"term"`
-	Category     string                 `gorm:"size:50;not null" json:"category"` // general, sport-specific, strategy, platform
-	Definition   string                 `gorm:"type:text;not null" json:"definition"`
-	Examples     datatypes.JSON         `json:"examples"`
-	RelatedTerms []string `gorm:"type:text[]" json:"related_terms"`
-	Difficulty   string                 `gorm:"size:20" json:"difficulty"` // beginner, intermediate, advanced
-	Sport        string                 `gorm:"size:20" json:"sport"`      // optional sport association
-	CreatedAt    time.Time              `json:"created_at"`
-	UpdatedAt    time.Time              `json:"updated_at"`
+	ID           uint           `gorm:"primaryKey" json:"id"`
+	Term         string         `gorm:"uniqueIndex;size:100;not null" json:"term"`
+	Category     string         `gorm:"size:50;not null" json:"category"` // general, sport-specific, strategy, platform
+	Definition   string         `gorm:"type:text;not null" json:"definition"`
+	Examples     datatypes.JSON `json:"examples"`
+	RelatedTerms []string       `gorm:"type:text[]" json:"related_terms"`
+	Difficulty   string         `gorm:"size:20" json:"difficulty"` // beginner, intermediate, advanced
+	Sport        string         `gorm:"size:20" json:"sport"`      // optional sport association
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
 // AIRecommendation stores AI recommendation history for analytics
@@ -58,14 +58,14 @@ type AIRecommendation struct {
 
 // UserPreferences stores user UI preferences
 type UserPreferences struct {
-	UserID              int                   `gorm:"primaryKey" json:"user_id"`
-	BeginnerMode        bool                  `gorm:"default:false" json:"beginner_mode"`
-	ShowTooltips        bool                  `gorm:"default:true" json:"show_tooltips"`
-	TooltipDelay        int                   `gorm:"default:500" json:"tooltip_delay"`
-	PreferredSports     []string `gorm:"type:text[]" json:"preferred_sports"`
-	AISuggestionsEnabled bool                  `gorm:"default:true" json:"ai_suggestions_enabled"`
-	CreatedAt           time.Time             `json:"created_at"`
-	UpdatedAt           time.Time             `json:"updated_at"`
+	UserID               int       `gorm:"primaryKey" json:"user_id"`
+	BeginnerMode         bool      `gorm:"default:false" json:"beginner_mode"`
+	ShowTooltips         bool      `gorm:"default:true" json:"show_tooltips"`
+	TooltipDelay         int       `gorm:"default:500" json:"tooltip_delay"`
+	PreferredSports      []string  `gorm:"type:text[]" json:"preferred_sports"`
+	AISuggestionsEnabled bool      `gorm:"default:true" json:"ai_suggestions_enabled"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 // GetTeamByAbbreviation fetches team info by abbreviation

@@ -10,7 +10,7 @@ import (
 type Contest struct {
 	ID                uint      `gorm:"primaryKey" json:"id"`
 	Platform          string    `gorm:"not null" json:"platform"`     // "draftkings" or "fanduel"
-	Sport             string    `gorm:"not null" json:"sport"`        // "nba", "nfl", "mlb", "nhl"
+	Sport             string    `gorm:"not null" json:"sport"`        // "nba", "nfl", "mlb", "nhl", "golf"
 	ContestType       string    `gorm:"not null" json:"contest_type"` // "gpp" or "cash"
 	Name              string    `gorm:"not null" json:"name"`
 	EntryFee          float64   `json:"entry_fee"`
@@ -25,6 +25,13 @@ type Contest struct {
 	LastDataUpdate    time.Time `json:"last_data_update"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
+	TournamentID      *string   `gorm:"type:uuid" json:"tournament_id,omitempty"`
+	ExternalID        string    `gorm:"index" json:"external_id"`    // DraftKings contest ID
+	DraftGroupID      string    `gorm:"index" json:"draft_group_id"` // DraftKings draft group ID
+	LastSyncTime      time.Time `json:"last_sync_time"`              // Last time contest was synced from external source
+
+	// Relationships
+	Tournament *GolfTournament `gorm:"foreignKey:TournamentID" json:"tournament,omitempty"`
 
 	// Position requirements stored as JSON
 	PositionRequirements PositionRequirements `gorm:"type:jsonb" json:"position_requirements"`
@@ -151,6 +158,11 @@ func GetPositionRequirements(sport, platform string) PositionRequirements {
 				"D": 2,
 				"G": 1,
 			}
+		}
+	case "golf":
+		// Both DraftKings and FanDuel use 6 golfers for PGA
+		requirements = PositionRequirements{
+			"G": 6, // 6 golfers
 		}
 	}
 
