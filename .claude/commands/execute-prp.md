@@ -1,17 +1,19 @@
-# Execute PRP with Git Workflow
+# Execute PRP with Git Worktree Workflow
 
-Implement a feature using the PRP file with proper git workflow, branch management, and PR creation.
+Implement a feature using the PRP file with git worktrees for parallel development, enabling simultaneous frontend/backend work.
 
 ## PRP File: $ARGUMENTS
 
 ## Enhanced Execution Process
 
-### 1. **Pre-execution Setup & Branch Creation**
+### 1. **Pre-execution Setup & Worktree Creation**
    - Parse PRP filename to generate meaningful branch name (e.g., `prp/ai-recommendations-fix`)
-   - Ensure we're on main branch and it's up to date: `git checkout main && git pull origin main`
-   - Create and checkout new feature branch: `git checkout -b prp/[feature-name]`
+   - Ensure main branch is up to date: `git fetch origin main`
+   - Create new feature branch: `git checkout -b prp/[feature-name] origin/main`
+   - Create dedicated worktree directory: `git worktree add ../[project-name]-prp-[feature-name] prp/[feature-name]`
+   - Switch to new worktree: `cd ../[project-name]-prp-[feature-name]`
    - Mark PRP as in-progress (add execution timestamp and branch info to PRP metadata)
-   - Confirm branch creation and initial state
+   - Confirm worktree creation and initial state
 
 ### 2. **Load PRP & Deep Analysis**
    - Read the specified PRP file thoroughly
@@ -91,7 +93,7 @@ Implement a feature using the PRP file with proper git workflow, branch manageme
      )"
      ```
 
-### 8. **PRP Lifecycle Management**
+### 8. **PRP Lifecycle Management & Worktree Cleanup**
    - Create executed PRPs directory if it doesn't exist: `mkdir -p PRPs/executed`
    - Move PRP file to executed folder: `mv [prp-path] PRPs/executed/`
    - Create execution metadata file `PRPs/executed/[prp-name].meta.json`:
@@ -100,6 +102,7 @@ Implement a feature using the PRP file with proper git workflow, branch manageme
        "prp_name": "[prp-title]",
        "executed_at": "[timestamp]",
        "branch": "prp/[feature-name]",
+       "worktree_path": "../[project-name]-prp-[feature-name]",
        "pr_url": "[github-pr-url]",
        "executor": "claude-code",
        "status": "completed",
@@ -108,6 +111,8 @@ Implement a feature using the PRP file with proper git workflow, branch manageme
      ```
    - Commit PRP lifecycle changes: `git add PRPs/ && git commit -m "docs: mark [PRP-TITLE] as executed"`
    - Push lifecycle changes: `git push`
+   - **Keep worktree active** for continued development or quick fixes
+   - To cleanup later: `git worktree remove ../[project-name]-prp-[feature-name]` (after merge)
 
 ### 9. **Completion Report & Handoff**
    - Provide comprehensive completion report including:
@@ -124,26 +129,67 @@ Implement a feature using the PRP file with proper git workflow, branch manageme
 
 ### 10. **Reference & Support**
    - PRP file moved to `PRPs/executed/` for future reference
-   - Branch remains available for continued development if needed
+   - Branch and worktree remain available for continued development
    - All implementation details documented in PR description
    - You can always reference the executed PRP or original requirements
+   - **Parallel Development**: Multiple worktrees can exist simultaneously for different PRPs
+   - **Worktree Management**: Use `git worktree list` to see all active worktrees
 
-## Git Workflow Requirements
+## Git Worktree Workflow Requirements
 
 - **Branch Naming**: Use `prp/[descriptive-kebab-case-name]` format
+- **Worktree Naming**: Use `../[project-name]-prp-[feature-name]` format
 - **Commit Messages**: Follow conventional commits (feat:, fix:, docs:, etc.)
 - **PR Title**: Use "PRP: [Original PRP Title]" format
 - **Clean History**: Logical, incremental commits with clear progression
 - **Testing**: All tests must pass before PR creation
 - **Documentation**: PR description must be comprehensive and self-explanatory
+- **Parallel Work**: Each PRP gets its own worktree for simultaneous development
+- **Isolation**: Worktrees are completely isolated - no conflicts between concurrent PRPs
+
+## Worktree Management Commands
+
+### Common Worktree Operations
+```bash
+# List all active worktrees
+git worktree list
+
+# Create new worktree for PRP
+git worktree add ../fun-prp-feature-name prp/feature-name
+
+# Switch between worktrees
+cd ../fun-prp-feature-name
+
+# Remove completed worktree (after merge)
+git worktree remove ../fun-prp-feature-name
+
+# Prune stale worktree references
+git worktree prune
+```
+
+### Parallel Development Example
+```bash
+# Terminal 1: Frontend PRP
+cd ../fun-prp-frontend-optimization
+npm run dev
+
+# Terminal 2: Backend PRP  
+cd ../fun-prp-api-improvements
+go run cmd/server/main.go
+
+# Terminal 3: Original repo for monitoring
+cd fun
+git worktree list
+```
 
 ## Error Handling & Recovery
 
-- If validation fails, fix issues on the same branch and re-run validation
+- If validation fails, fix issues within the worktree and re-run validation
 - Use error patterns in PRP to guide troubleshooting approach
 - If major issues arise, document in PR and request guidance
-- Maintain clean git history even during error recovery
+- Maintain clean git history even during error recovery within the worktree
 - Never force push or rewrite shared branch history
+- Worktree isolation prevents conflicts between concurrent development streams
 
 ## Success Criteria
 
