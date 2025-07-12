@@ -7,6 +7,7 @@ import (
 
 	"github.com/jstittsworth/dfs-optimizer/internal/dfs"
 	"github.com/jstittsworth/dfs-optimizer/internal/models"
+	"github.com/jstittsworth/dfs-optimizer/pkg/config"
 	"github.com/jstittsworth/dfs-optimizer/pkg/database"
 	"github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
@@ -24,6 +25,7 @@ type DataFetcherService struct {
 	fetchInterval    time.Duration
 	golfSyncService  *GolfTournamentSyncService
 	contestDiscovery *ContestDiscoveryService
+	config           *config.Config
 }
 
 // NewDataFetcherService creates a new data fetcher service
@@ -33,6 +35,7 @@ func NewDataFetcherService(
 	aggregator *DataAggregator,
 	logger *logrus.Logger,
 	fetchInterval time.Duration,
+	cfg *config.Config,
 ) *DataFetcherService {
 	return &DataFetcherService{
 		db:               db,
@@ -42,6 +45,7 @@ func NewDataFetcherService(
 		cron:             cron.New(),
 		fetchInterval:    fetchInterval,
 		contestDiscovery: NewContestDiscoveryService(db),
+		config:           cfg,
 	}
 }
 
@@ -54,43 +58,55 @@ func (s *DataFetcherService) Start() error {
 		return fmt.Errorf("data fetcher is already running")
 	}
 
-	// Schedule regular updates
-	schedule := fmt.Sprintf("@every %s", s.fetchInterval.String())
-	_, err := s.cron.AddFunc(schedule, s.fetchAllContests)
-	if err != nil {
-		return fmt.Errorf("failed to schedule data fetcher: %w", err)
+	// Only schedule background jobs if enabled
+	if s.config.EnableBackgroundJobs {
+		// Schedule regular updates
+		schedule := fmt.Sprintf("@every %s", s.fetchInterval.String())
+		_, err := s.cron.AddFunc(schedule, s.fetchAllContests)
+		if err != nil {
+			return fmt.Errorf("failed to schedule data fetcher: %w", err)
+		}
+
+		// Schedule more frequent updates during contest hours
+		// NBA games typically start between 7-10 PM ET
+		_, err = s.cron.AddFunc("0 17-22 * * *", s.fetchActiveContests) // Every hour from 5-10 PM
+		if err != nil {
+			return fmt.Errorf("failed to schedule active contest fetcher: %w", err)
+		}
+
+		// Schedule daily cleanup
+		_, err = s.cron.AddFunc("0 3 * * *", s.cleanupOldData) // 3 AM daily
+		if err != nil {
+			return fmt.Errorf("failed to schedule cleanup: %w", err)
+		}
+
+		// Schedule contest discovery every 30 minutes
+		_, err = s.cron.AddFunc("*/30 * * * *", s.discoverContests) // Every 30 minutes
+		if err != nil {
+			return fmt.Errorf("failed to schedule contest discovery: %w", err)
+		}
+
+		s.logger.Info("Background data fetching jobs scheduled")
+	} else {
+		s.logger.Info("Background data fetching jobs disabled by configuration")
 	}
 
-	// Schedule more frequent updates during contest hours
-	// NBA games typically start between 7-10 PM ET
-	_, err = s.cron.AddFunc("0 17-22 * * *", s.fetchActiveContests) // Every hour from 5-10 PM
-	if err != nil {
-		return fmt.Errorf("failed to schedule active contest fetcher: %w", err)
-	}
-
-	// Schedule daily cleanup
-	_, err = s.cron.AddFunc("0 3 * * *", s.cleanupOldData) // 3 AM daily
-	if err != nil {
-		return fmt.Errorf("failed to schedule cleanup: %w", err)
-	}
-
-	// Schedule golf tournament sync twice daily
-	_, err = s.cron.AddFunc("0 6,18 * * *", s.syncGolfTournaments) // 6 AM and 6 PM
-	if err != nil {
-		return fmt.Errorf("failed to schedule golf tournament sync: %w", err)
-	}
-
-	// Schedule contest discovery every 30 minutes
-	_, err = s.cron.AddFunc("*/30 * * * *", s.discoverContests) // Every 30 minutes
-	if err != nil {
-		return fmt.Errorf("failed to schedule contest discovery: %w", err)
+	// Always schedule golf tournament sync if not in golf-only mode or if golf is explicitly supported
+	if !s.config.GolfOnlyMode || s.isGolfSupported() {
+		_, err := s.cron.AddFunc("0 6,18 * * *", s.syncGolfTournaments) // 6 AM and 6 PM
+		if err != nil {
+			return fmt.Errorf("failed to schedule golf tournament sync: %w", err)
+		}
+		s.logger.Info("Golf tournament sync scheduled")
 	}
 
 	s.cron.Start()
 	s.isRunning = true
 
-	// Run initial fetch
-	go s.fetchAllContests()
+	// Run initial fetch only if background jobs are enabled
+	if s.config.EnableBackgroundJobs {
+		go s.fetchAllContests()
+	}
 
 	s.logger.Info("Data fetcher service started")
 	return nil
@@ -316,6 +332,16 @@ func (s *DataFetcherService) discoverContests() {
 	}
 
 	s.logger.Info("Completed scheduled contest discovery")
+}
+
+// isGolfSupported checks if golf is in the supported sports list
+func (s *DataFetcherService) isGolfSupported() bool {
+	for _, sport := range s.config.SupportedSports {
+		if sport == "golf" {
+			return true
+		}
+	}
+	return false
 }
 
 // DiscoverContestsOnDemand allows manual triggering of contest discovery

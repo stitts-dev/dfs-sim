@@ -10,6 +10,7 @@ import (
 	"github.com/jstittsworth/dfs-optimizer/internal/dfs"
 	"github.com/jstittsworth/dfs-optimizer/internal/models"
 	"github.com/jstittsworth/dfs-optimizer/internal/providers"
+	"github.com/jstittsworth/dfs-optimizer/pkg/config"
 	"github.com/jstittsworth/dfs-optimizer/pkg/database"
 	"github.com/sirupsen/logrus"
 )
@@ -25,6 +26,7 @@ type DataAggregator struct {
 	golfProvider      dfs.Provider
 	// Add DraftKingsProvider
 	draftKingsProvider *providers.DraftKingsProvider
+	config             *config.Config
 }
 
 // NewDataAggregator creates a new data aggregator
@@ -33,6 +35,7 @@ func NewDataAggregator(
 	cache *CacheService,
 	logger *logrus.Logger,
 	ballDontLieAPIKey string,
+	cfg *config.Config,
 ) *DataAggregator {
 	return &DataAggregator{
 		db:                 db,
@@ -43,6 +46,7 @@ func NewDataAggregator(
 		ballDontLieClient:  providers.NewBallDontLieClient(ballDontLieAPIKey, cache, logger),
 		golfProvider:       providers.NewESPNGolfClient(cache, logger), // Default to ESPN
 		draftKingsProvider: providers.NewDraftKingsProvider(),
+		config:             cfg,
 	}
 }
 
@@ -60,6 +64,12 @@ type FetchResult struct {
 
 // AggregatePlayersForContest fetches and aggregates player data for a contest
 func (a *DataAggregator) AggregatePlayersForContest(contestID uint, sportStr string) ([]dfs.AggregatedPlayer, error) {
+	// Check if golf-only mode is enabled and this is not a golf sport
+	if a.config.GolfOnlyMode && strings.ToLower(sportStr) != "golf" {
+		a.logger.Infof("Golf-only mode enabled, skipping player aggregation for sport: %s", sportStr)
+		return []dfs.AggregatedPlayer{}, nil
+	}
+
 	// Convert sport string to dfs.Sport
 	var sport dfs.Sport
 	switch sportStr {
@@ -133,43 +143,51 @@ func (a *DataAggregator) fetchFromAllProviders(ctx context.Context, sport dfs.Sp
 			results <- FetchResult{Provider: "draftkings", Players: players, Error: err}
 		}()
 	} else {
-		// ESPN for other sports
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			players, err := a.espnClient.GetPlayers(sport, date)
-			results <- FetchResult{Provider: "espn", Players: players, Error: err}
-		}()
-
-		// DraftKings for NBA and LOL
-		if sport == dfs.SportNBA || string(sport) == "lol" {
+		// Skip non-golf providers in golf-only mode
+		if a.config.GolfOnlyMode {
+			a.logger.Info("Golf-only mode enabled, skipping non-golf providers for other sports")
+		} else {
+			// ESPN for other sports
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				players, err := a.draftKingsProvider.GetPlayers(sport, date)
-				results <- FetchResult{Provider: "draftkings", Players: players, Error: err}
+				players, err := a.espnClient.GetPlayers(sport, date)
+				results <- FetchResult{Provider: "espn", Players: players, Error: err}
 			}()
+
+			// DraftKings for NBA, NFL and LOL
+			if sport == dfs.SportNBA || sport == dfs.SportNFL || string(sport) == "lol" {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					players, err := a.draftKingsProvider.GetPlayers(sport, date)
+					results <- FetchResult{Provider: "draftkings", Players: players, Error: err}
+				}()
+			}
 		}
 	}
 
-	// TheSportsDB (only for NBA/NFL/MLB)
-	if sport == dfs.SportNBA || sport == dfs.SportNFL || sport == dfs.SportMLB {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			// TheSportsDB doesn't support date-based queries, so we'll skip for now
-			results <- FetchResult{Provider: "thesportsdb", Players: []dfs.PlayerData{}, Error: nil}
-		}()
-	}
+	// Skip non-golf providers in golf-only mode
+	if !a.config.GolfOnlyMode {
+		// TheSportsDB (only for NBA/NFL/MLB)
+		if sport == dfs.SportNBA || sport == dfs.SportNFL || sport == dfs.SportMLB {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				// TheSportsDB doesn't support date-based queries, so we'll skip for now
+				results <- FetchResult{Provider: "thesportsdb", Players: []dfs.PlayerData{}, Error: nil}
+			}()
+		}
 
-	// BALLDONTLIE (only for NBA)
-	if sport == dfs.SportNBA {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			players, err := a.ballDontLieClient.GetPlayers(sport, date)
-			results <- FetchResult{Provider: "balldontlie", Players: players, Error: err}
-		}()
+		// BALLDONTLIE (only for NBA)
+		if sport == dfs.SportNBA {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				players, err := a.ballDontLieClient.GetPlayers(sport, date)
+				results <- FetchResult{Provider: "balldontlie", Players: players, Error: err}
+			}()
+		}
 	}
 
 	// Close results channel when all fetches complete

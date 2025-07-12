@@ -27,5 +27,6 @@
     }
   },
   "include": ["src"],
+  "exclude": ["src/templates/ui-blocks/**/*"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

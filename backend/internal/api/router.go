@@ -18,7 +18,7 @@ func SetupRoutes(group *gin.RouterGroup, db *database.DB, cache *services.CacheS
 	aiService := services.NewAIRecommendationService(db, cfg, cache)
 
 	// Initialize handlers
-	playerHandler := handlers.NewPlayerHandler(db, cache, aggregator, dataFetcher)
+	playerHandler := handlers.NewPlayerHandler(db, cache, aggregator, dataFetcher, cfg)
 	lineupHandler := handlers.NewLineupHandler(db, cache)
 	optimizerHandler := handlers.NewOptimizerHandler(db, cache, cfg)
 	simulationHandler := handlers.NewSimulationHandler(db, cache, wsHub)

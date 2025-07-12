@@ -52,6 +52,12 @@ type Config struct {
 	StartupDelaySeconds         int           `mapstructure:"STARTUP_DELAY_SECONDS"`
 	ExternalAPITimeout          time.Duration `mapstructure:"EXTERNAL_API_TIMEOUT"`
 	CircuitBreakerThreshold     int           `mapstructure:"CIRCUIT_BREAKER_THRESHOLD"`
+
+	// Feature Flags
+	EnableAutoPlayerFetch  bool     `mapstructure:"ENABLE_AUTO_PLAYER_FETCH"`
+	EnableBackgroundJobs   bool     `mapstructure:"ENABLE_BACKGROUND_JOBS"`
+	GolfOnlyMode          bool     `mapstructure:"GOLF_ONLY_MODE"`
+	SupportedSports       []string `mapstructure:"SUPPORTED_SPORTS"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -88,6 +94,12 @@ func LoadConfig() (*Config, error) {
 	viper.SetDefault("EXTERNAL_API_TIMEOUT", "10s")           // Conservative timeout
 	viper.SetDefault("CIRCUIT_BREAKER_THRESHOLD", 5)          // Fail after 5 consecutive failures
 
+	// Feature flag defaults - golf-only mode by default for better stability
+	viper.SetDefault("ENABLE_AUTO_PLAYER_FETCH", false) // Disable automatic player fetching by default
+	viper.SetDefault("ENABLE_BACKGROUND_JOBS", false)   // Disable background jobs by default
+	viper.SetDefault("GOLF_ONLY_MODE", true)            // Enable golf-only mode by default
+	viper.SetDefault("SUPPORTED_SPORTS", "golf")        // Only support golf by default
+
 	// Read from environment
 	viper.AutomaticEnv()
 
@@ -106,6 +118,11 @@ func LoadConfig() (*Config, error) {
 	// Parse CORS origins from comma-separated string
 	if corsStr := viper.GetString("CORS_ORIGINS"); corsStr != "" {
 		config.CorsOrigins = strings.Split(corsStr, ",")
+	}
+
+	// Parse supported sports from comma-separated string
+	if sportsStr := viper.GetString("SUPPORTED_SPORTS"); sportsStr != "" {
+		config.SupportedSports = strings.Split(sportsStr, ",")
 	}
 
 	return &config, nil

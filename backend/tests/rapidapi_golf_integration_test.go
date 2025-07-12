@@ -72,8 +72,8 @@ func (suite *RapidAPIGolfIntegrationSuite) SetupSuite() {
 	wsHub := services.NewWebSocketHub()
 	go wsHub.Run()
 
-	aggregator := services.NewDataAggregator(suite.db, suite.cache, logger, cfg.BallDontLieAPIKey)
-	dataFetcher := services.NewDataFetcherService(suite.db, suite.cache, aggregator, logger, 2*time.Hour)
+	aggregator := services.NewDataAggregator(suite.db, suite.cache, logger, cfg.BallDontLieAPIKey, cfg)
+	dataFetcher := services.NewDataFetcherService(suite.db, suite.cache, aggregator, logger, 2*time.Hour, cfg)
 
 	apiV1 := suite.router.Group("/api/v1")
 	api.SetupRoutes(apiV1, suite.db, suite.cache, wsHub, cfg, aggregator, dataFetcher)

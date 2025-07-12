@@ -9,6 +9,7 @@ import (
 	"github.com/jstittsworth/dfs-optimizer/internal/dfs"
 	"github.com/jstittsworth/dfs-optimizer/internal/models"
 	"github.com/jstittsworth/dfs-optimizer/internal/services"
+	"github.com/jstittsworth/dfs-optimizer/pkg/config"
 	"github.com/jstittsworth/dfs-optimizer/pkg/database"
 	"github.com/jstittsworth/dfs-optimizer/pkg/utils"
 )
@@ -18,14 +19,16 @@ type PlayerHandler struct {
 	cache       *services.CacheService
 	aggregator  *services.DataAggregator
 	dataFetcher *services.DataFetcherService
+	config      *config.Config
 }
 
-func NewPlayerHandler(db *database.DB, cache *services.CacheService, aggregator *services.DataAggregator, dataFetcher *services.DataFetcherService) *PlayerHandler {
+func NewPlayerHandler(db *database.DB, cache *services.CacheService, aggregator *services.DataAggregator, dataFetcher *services.DataFetcherService, cfg *config.Config) *PlayerHandler {
 	return &PlayerHandler{
 		db:          db,
 		cache:       cache,
 		aggregator:  aggregator,
 		dataFetcher: dataFetcher,
+		config:      cfg,
 	}
 }
 
@@ -55,8 +58,8 @@ func (h *PlayerHandler) GetPlayers(c *gin.Context) {
 		return
 	}
 
-	// If data is stale (older than 2 hours), trigger a background update
-	if time.Since(contest.LastDataUpdate) > 2*time.Hour {
+	// If data is stale (older than 2 hours) and auto-fetch is enabled, trigger a background update
+	if h.config.EnableAutoPlayerFetch && time.Since(contest.LastDataUpdate) > 2*time.Hour {
 		go h.dataFetcher.FetchOnDemand(uint(contestID))
 	}
 

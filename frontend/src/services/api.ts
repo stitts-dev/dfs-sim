@@ -3,8 +3,8 @@ import { LineupValidation } from '@/types/lineup'
 import { OptimizeConfig, OptimizerResult, LineupConstraints } from '@/types/optimizer'
 import { SimulationConfig, SimulationResult } from '@/types/simulation'
 
-// Use relative URL so Vite proxy can handle it
-const API_BASE = '/api/v1'
+// Use environment variable for API base URL, fallback to relative for dev proxy
+const API_BASE = import.meta.env.VITE_API_URL || '/api/v1'
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -209,6 +209,12 @@ export const getExportFormats = async (sport?: string, platform?: string) => {
 
 // WebSocket connection
 export const connectWebSocket = () => {
-  const wsUrl = API_BASE.replace('http', 'ws').replace('/api/v1', '/ws')
+  // For production builds with full API URL, create WebSocket URL
+  if (API_BASE.startsWith('http')) {
+    const wsUrl = API_BASE.replace('http', 'ws').replace('/api/v1', '/ws')
+    return new WebSocket(wsUrl)
+  }
+  // For dev mode with proxy, use relative WebSocket path
+  const wsUrl = '/ws'
   return new WebSocket(wsUrl)
 }

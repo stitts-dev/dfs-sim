@@ -72,7 +72,7 @@ func main() {
 	go webSocketHub.Run()
 
 	// Initialize data providers
-	aggregator := services.NewDataAggregator(db, cacheService, logrus.StandardLogger(), cfg.BallDontLieAPIKey)
+	aggregator := services.NewDataAggregator(db, cacheService, logrus.StandardLogger(), cfg.BallDontLieAPIKey, cfg)
 
 	// Initialize golf provider for tournament sync
 	var golfProvider interface {
@@ -104,7 +104,7 @@ func main() {
 	}
 
 	// Initialize data fetcher
-	dataFetcher := services.NewDataFetcherService(db, cacheService, aggregator, logrus.StandardLogger(), fetchInterval)
+	dataFetcher := services.NewDataFetcherService(db, cacheService, aggregator, logrus.StandardLogger(), fetchInterval, cfg)
 
 	// Set golf sync service in data fetcher for scheduled syncs
 	dataFetcher.SetGolfSyncService(golfSyncService)
