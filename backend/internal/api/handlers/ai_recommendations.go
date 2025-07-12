@@ -82,7 +82,7 @@ func (h *AIRecommendationHandler) RecommendPlayers(c *gin.Context) {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 			return
 		}
-		
+
 		utils.SendInternalError(c, "Failed to get recommendations: "+err.Error())
 		return
 	}
@@ -151,13 +151,13 @@ func (h *AIRecommendationHandler) AnalyzeLineup(c *gin.Context) {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": err.Error()})
 			return
 		}
-		
+
 		utils.SendInternalError(c, "Failed to analyze lineup: "+err.Error())
 		return
 	}
 
 	utils.SendSuccess(c, gin.H{
-		"analysis": analysis,
+		"analysis":  analysis,
 		"lineup_id": req.LineupID,
 	})
 }
@@ -202,8 +202,8 @@ func (h *AIRecommendationHandler) GetRecommendationHistory(c *gin.Context) {
 
 	utils.SendSuccess(c, gin.H{
 		"recommendations": history,
-		"count":          len(history),
-		"limit":          limit,
+		"count":           len(history),
+		"limit":           limit,
 	})
 }
 
@@ -211,13 +211,13 @@ func (h *AIRecommendationHandler) GetRecommendationHistory(c *gin.Context) {
 func (h *AIRecommendationHandler) RegisterRoutes(router *gin.RouterGroup) {
 	// Log that we're registering AI routes
 	fmt.Println("DEBUG: Registering AI recommendation routes")
-	
+
 	ai := router.Group("/ai")
 	{
 		ai.POST("/recommend-players", h.RecommendPlayers)
 		ai.POST("/analyze-lineup", h.AnalyzeLineup)
 		ai.GET("/recommendations/history", h.GetRecommendationHistory)
 	}
-	
+
 	fmt.Println("DEBUG: AI routes registered successfully")
 }
