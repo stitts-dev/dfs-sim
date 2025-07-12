@@ -58,6 +58,22 @@ export const resetPreferences = async (): Promise<UserPreferences> => {
   return data.data
 }
 
+export interface MigratePreferencesRequest {
+  beginner_mode: boolean
+  show_tooltips: boolean
+  tooltip_delay: number
+  preferred_sports: string[]
+  ai_suggestions_enabled: boolean
+}
+
+// Migrate anonymous preferences to authenticated user during signup
+export const migratePreferences = async (
+  preferences: MigratePreferencesRequest
+): Promise<UserPreferences> => {
+  const { data } = await api.post('/user/preferences/migrate', preferences)
+  return data.data
+}
+
 // Helper to sync preferences with local storage
 export const syncPreferencesWithLocalStorage = (_preferences: UserPreferences) => {
   // This is handled by the zustand persist middleware

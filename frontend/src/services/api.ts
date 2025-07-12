@@ -22,6 +22,33 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// Add response interceptor for logging
+api.interceptors.response.use(
+  (response) => {
+    // Log successful responses for debugging
+    if (response.config.url?.includes('/optimize')) {
+      console.log('API Response:', {
+        url: response.config.url,
+        method: response.config.method,
+        status: response.status,
+        data: response.data
+      })
+    }
+    return response
+  },
+  (error) => {
+    // Log error responses
+    console.error('API Error:', {
+      url: error.config?.url,
+      method: error.config?.method,
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message
+    })
+    return Promise.reject(error)
+  }
+)
+
 // Contest endpoints
 export const getContests = async (params?: {
   sport?: string
@@ -101,8 +128,20 @@ export const submitLineup = async (id: number) => {
 }
 
 // Optimizer endpoints
-export const optimizeLineups = async (config: OptimizeConfig) => {
+export interface OptimizeConfigWithContext extends OptimizeConfig {
+  sport?: string;
+  platform?: string;
+}
+
+export const optimizeLineups = async (config: OptimizeConfigWithContext) => {
+  // Log request for debugging
+  console.log('Optimize request:', config);
+  
   const { data } = await api.post('/optimize', config)
+  
+  // Log response
+  console.log('Optimize response:', data);
+  
   return data.data as OptimizerResult
 }
 

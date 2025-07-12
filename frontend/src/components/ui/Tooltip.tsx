@@ -154,7 +154,7 @@ export default function Tooltip({
               top: y ?? 0,
               left: x ?? 0,
               maxWidth,
-              zIndex: 9999,
+              zIndex: 10000,
             }}
             className={cn(
               'tooltip',

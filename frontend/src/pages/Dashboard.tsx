@@ -150,6 +150,17 @@ function ContestCard({ contest }: { contest: Contest }) {
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {formatDate(contest.start_time)}
             </p>
+            {/* Show tournament info for golf contests */}
+            {contest.sport === 'golf' && contest.tournament && (
+              <div className="mt-1">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  {contest.tournament.name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {contest.tournament.course_name} • Par {contest.tournament.course_par}
+                </p>
+              </div>
+            )}
           </div>
         </div>
         <span
@@ -192,6 +203,15 @@ function ContestCard({ contest }: { contest: Contest }) {
           </p>
         </div>
       </div>
+
+      {/* Show tournament purse for golf contests */}
+      {contest.sport === 'golf' && contest.tournament && (
+        <div className="mt-3 border-t border-gray-200 dark:border-gray-700 pt-3">
+          <div className="text-xs text-gray-600 dark:text-gray-400">
+            Tournament Purse: {formatCurrency(contest.tournament.purse)}
+          </div>
+        </div>
+      )}
 
       <div className="mt-4">
         <div className="text-xs text-gray-500 dark:text-gray-400">

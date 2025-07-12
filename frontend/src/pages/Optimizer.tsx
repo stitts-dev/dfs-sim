@@ -17,7 +17,7 @@ import LineupBuilder from '@/components/LineupBuilder'
 import OptimizerControls from '@/components/OptimizerControls'
 import AIAssistant from '@/components/ai/AIAssistant'
 import LineupAnalyzer from '@/components/ai/LineupAnalyzer'
-import { getContest, getPlayers, optimizeLineups } from '@/services/api'
+import { getContest, getPlayers, optimizeLineups, OptimizeConfigWithContext } from '@/services/api'
 import { Player } from '@/types/player'
 import { Lineup } from '@/types/lineup'
 import { OptimizeConfig } from '@/types/optimizer'
@@ -64,7 +64,7 @@ export default function Optimizer() {
   )
 
   const handleOptimize = async (config: Partial<OptimizeConfig>) => {
-    if (!contestId) {
+    if (!contestId || !contest) {
       toast.error('Please select a contest first')
       return
     }
@@ -77,8 +77,10 @@ export default function Optimizer() {
     setIsOptimizing(true)
     
     try {
-      const optimizeConfig: OptimizeConfig = {
+      const optimizeConfig: OptimizeConfigWithContext = {
         contest_id: contestId,
+        sport: contest.sport,        // Add sport from contest
+        platform: contest.platform,  // Add platform from contest
         num_lineups: config.num_lineups || 20,
         min_different_players: config.min_different_players || 3,
         use_correlations: config.use_correlations ?? true,
@@ -96,13 +98,15 @@ export default function Optimizer() {
       
       console.log('Optimization result:', result)
       
-      if (result && result.lineups && result.lineups.length > 0) {
-        setOptimizedLineups(result.lineups)
-        setCurrentLineup(result.lineups[0].players)
-        toast.success(`Generated ${result.lineups.length} optimized lineups!`)
-      } else {
-        toast.error('No valid lineups could be generated. Try adjusting your constraints.')
+      if (!result?.lineups?.length) {
+        console.error('No lineups returned:', result)
+        toast.error('No valid lineups generated. Check console for details.')
+        return
       }
+      
+      setOptimizedLineups(result.lineups)
+      setCurrentLineup(result.lineups[0].players)
+      toast.success(`Generated ${result.lineups.length} optimized lineups!`)
     } catch (error: any) {
       console.error('Optimization failed:', error)
       
@@ -301,9 +305,9 @@ export default function Optimizer() {
       onDragEnd={handleDragEnd}
       collisionDetection={closestCenter}
     >
-      <div className="h-screen flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
         {/* Fixed Header */}
-        <div className="flex-shrink-0 p-6 pb-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800">
+        <div className="sticky top-0 z-10 p-6 pb-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800">
           <h2 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
             <span className="text-4xl">🏆</span>
             {contest?.name || 'Lineup Optimizer'}
@@ -325,12 +329,12 @@ export default function Optimizer() {
           </div>
         </div>
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden">
-          <div className="p-6 pt-2">
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-              {/* Player Pool - Fixed height on desktop */}
-              <div className="lg:col-span-4 lg:sticky lg:top-0 lg:h-[calc(100vh-180px)]">
+        {/* Main Content */}
+        <div className="p-4 sm:p-6">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+            {/* Player Pool - Sticky sidebar on desktop */}
+            <div className="lg:col-span-4 order-2 lg:order-1">
+              <div className="lg:sticky lg:top-[120px] lg:h-[calc(100vh-140px)]">
                 <PlayerPool
                   players={players || []}
                   loading={playersLoading}
@@ -342,40 +346,40 @@ export default function Optimizer() {
                   onExcludePlayer={handleExcludePlayer}
                 />
               </div>
+            </div>
 
-              {/* Main Content Area */}
-              <div className="lg:col-span-8 space-y-6">
-                {/* Optimizer Controls */}
-                <OptimizerControls
-                  contest={contest}
-                  onOptimize={handleOptimize}
-                  isOptimizing={isOptimizing}
-                  lockedCount={lockedPlayers.size}
-                  excludedCount={excludedPlayers.size}
-                />
+            {/* Main Content Area */}
+            <div className="lg:col-span-8 space-y-6 order-1 lg:order-2">
+              {/* Optimizer Controls */}
+              <OptimizerControls
+                contest={contest}
+                onOptimize={handleOptimize}
+                isOptimizing={isOptimizing}
+                lockedCount={lockedPlayers.size}
+                excludedCount={excludedPlayers.size}
+              />
 
-                {/* Lineup Builder */}
-                <LineupBuilder
-                  contest={contest}
-                  lineup={currentLineup}
-                  allPlayers={players || []}
-                  optimizedLineups={optimizedLineups}
-                  onLineupChange={setCurrentLineup}
-                  onSelectLineup={(lineup: Lineup) => setCurrentLineup(lineup.players)}
-                />
+              {/* Lineup Builder */}
+              <LineupBuilder
+                contest={contest}
+                lineup={currentLineup}
+                allPlayers={players || []}
+                optimizedLineups={optimizedLineups}
+                onLineupChange={setCurrentLineup}
+                onSelectLineup={(lineup: Lineup) => setCurrentLineup(lineup.players)}
+              />
 
-                {/* AI Analysis - Only show for saved lineups from optimizedLineups */}
-                <LineupAnalyzer
-                  lineup={optimizedLineups.length > 0 && currentLineup.length > 0 ? 
-                    optimizedLineups.find(l => 
-                      l.players.length === currentLineup.length &&
-                      l.players.every(p => currentLineup.some(cp => cp.id === p.id))
-                    ) || null
-                    : null
-                  }
-                  contest={contest}
-                />
-              </div>
+              {/* AI Analysis - Only show for saved lineups from optimizedLineups */}
+              <LineupAnalyzer
+                lineup={optimizedLineups.length > 0 && currentLineup.length > 0 ? 
+                  optimizedLineups.find(l => 
+                    l.players.length === currentLineup.length &&
+                    l.players.every(p => currentLineup.some(cp => cp.id === p.id))
+                  ) || null
+                  : null
+                }
+                contest={contest}
+              />
             </div>
           </div>
         </div>
@@ -414,8 +418,9 @@ export default function Optimizer() {
         </div>
       ) : null}
     </DragOverlay>
-      {/* AI Assistant */}
-      <AIAssistant
+    
+    {/* AI Assistant - Fixed position */}
+    <AIAssistant
       contest={contest}
       currentLineup={currentLineup}
       availablePlayers={players || []}

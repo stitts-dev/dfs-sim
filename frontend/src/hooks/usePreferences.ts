@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { usePreferencesStore } from '@/store/preferences'
 import * as preferencesService from '@/services/preferences'
+import { isAuthenticated } from '@/services/auth'
 
 export function usePreferences() {
   const [preferences, setPreferences] = useState<preferencesService.UserPreferences | null>(null)
@@ -18,6 +19,27 @@ export function usePreferences() {
     try {
       setIsLoading(true)
       setError(null)
+      
+      // Check if user is authenticated
+      const authenticated = isAuthenticated()
+      
+      if (!authenticated) {
+        // For anonymous users, use local store only
+        const mockPrefs: preferencesService.UserPreferences = {
+          user_id: 0, // 0 indicates anonymous user
+          beginner_mode: store.beginnerMode,
+          show_tooltips: store.tooltipSettings.enabled,
+          tooltip_delay: store.tooltipSettings.delay,
+          preferred_sports: store.preferredSports,
+          ai_suggestions_enabled: store.aiSettings.enabled,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+        setPreferences(mockPrefs)
+        return
+      }
+      
+      // For authenticated users, fetch from API
       const prefs = await preferencesService.getPreferences()
       setPreferences(prefs)
       
@@ -32,13 +54,12 @@ export function usePreferences() {
       })
       store.setPreferredSports(prefs.preferred_sports || [])
     } catch (err) {
-      // If user is not authenticated or preferences don't exist,
-      // we'll just use local store defaults
+      // If API fails, fall back to local store
       console.warn('Failed to fetch preferences:', err)
       
       // Create mock preferences from local store
       const mockPrefs: preferencesService.UserPreferences = {
-        user_id: 1,
+        user_id: isAuthenticated() ? 1 : 0,
         beginner_mode: store.beginnerMode,
         show_tooltips: store.tooltipSettings.enabled,
         tooltip_delay: store.tooltipSettings.delay,
@@ -76,6 +97,26 @@ export function usePreferences() {
         })
       }
       
+      // Check if user is authenticated
+      const authenticated = isAuthenticated()
+      
+      if (!authenticated) {
+        // For anonymous users, only update local store
+        const mockPrefs: preferencesService.UserPreferences = {
+          user_id: 0, // 0 indicates anonymous user
+          beginner_mode: store.beginnerMode,
+          show_tooltips: store.tooltipSettings.enabled,
+          tooltip_delay: store.tooltipSettings.delay,
+          preferred_sports: store.preferredSports,
+          ai_suggestions_enabled: store.aiSettings.enabled,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+        setPreferences(mockPrefs)
+        return mockPrefs
+      }
+      
+      // For authenticated users, sync with API
       const updatedPrefs = await preferencesService.updatePreferences(updates)
       setPreferences(updatedPrefs)
       
@@ -106,24 +147,83 @@ export function usePreferences() {
       setIsLoading(true)
       setError(null)
       
-      const defaultPrefs = await preferencesService.resetPreferences()
-      setPreferences(defaultPrefs)
+      // Check if user is authenticated
+      const authenticated = isAuthenticated()
+      
+      // Define default preferences
+      const defaultPrefs: preferencesService.UserPreferences = {
+        user_id: authenticated ? 1 : 0,
+        beginner_mode: true,
+        show_tooltips: true,
+        tooltip_delay: 500,
+        preferred_sports: [],
+        ai_suggestions_enabled: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+      
+      if (!authenticated) {
+        // For anonymous users, reset local store only
+        store.setBeginnerMode(defaultPrefs.beginner_mode)
+        store.updateTooltipSettings({
+          enabled: defaultPrefs.show_tooltips,
+          delay: defaultPrefs.tooltip_delay,
+        })
+        store.updateAISettings({
+          enabled: defaultPrefs.ai_suggestions_enabled,
+        })
+        store.setPreferredSports(defaultPrefs.preferred_sports || [])
+        setPreferences(defaultPrefs)
+        return defaultPrefs
+      }
+      
+      // For authenticated users, reset via API
+      const resetPrefs = await preferencesService.resetPreferences()
+      setPreferences(resetPrefs)
       
       // Sync with local store
-      store.setBeginnerMode(defaultPrefs.beginner_mode)
+      store.setBeginnerMode(resetPrefs.beginner_mode)
       store.updateTooltipSettings({
-        enabled: defaultPrefs.show_tooltips,
-        delay: defaultPrefs.tooltip_delay,
+        enabled: resetPrefs.show_tooltips,
+        delay: resetPrefs.tooltip_delay,
       })
       store.updateAISettings({
-        enabled: defaultPrefs.ai_suggestions_enabled,
+        enabled: resetPrefs.ai_suggestions_enabled,
       })
-      store.setPreferredSports(defaultPrefs.preferred_sports || [])
+      store.setPreferredSports(resetPrefs.preferred_sports || [])
       
-      return defaultPrefs
+      return resetPrefs
     } catch (err) {
       console.error('Failed to reset preferences:', err)
       setError('Failed to reset preferences')
+      throw err
+    } finally {
+      setIsLoading(false)
+    }
+  }, [store])
+
+  const migratePreferences = useCallback(async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      
+      // Get current local preferences
+      const migrationData: preferencesService.MigratePreferencesRequest = {
+        beginner_mode: store.beginnerMode,
+        show_tooltips: store.tooltipSettings.enabled,
+        tooltip_delay: store.tooltipSettings.delay,
+        preferred_sports: store.preferredSports,
+        ai_suggestions_enabled: store.aiSettings.enabled,
+      }
+      
+      // Migrate to authenticated user
+      const migratedPrefs = await preferencesService.migratePreferences(migrationData)
+      setPreferences(migratedPrefs)
+      
+      return migratedPrefs
+    } catch (err) {
+      console.error('Failed to migrate preferences:', err)
+      setError('Failed to migrate preferences')
       throw err
     } finally {
       setIsLoading(false)
@@ -136,6 +236,7 @@ export function usePreferences() {
     error,
     updatePreferences,
     resetPreferences,
+    migratePreferences,
     refetch: fetchPreferences,
   }
 }

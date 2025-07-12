@@ -61,7 +61,7 @@ export default function OptimizerControls({
   }
 
   return (
-    <div className="glass rounded-xl p-6 shadow-glow-lg animate-fade-in sticky top-4">
+    <div className="glass rounded-xl p-6 shadow-glow-lg animate-fade-in">
       <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
         <span className="text-2xl">⚙️</span>
         Optimizer Settings

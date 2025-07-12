@@ -1,7 +1,7 @@
 export interface Contest {
   id: number
   platform: 'draftkings' | 'fanduel'
-  sport: 'nba' | 'nfl' | 'mlb' | 'nhl'
+  sport: 'nba' | 'nfl' | 'mlb' | 'nhl' | 'golf'
   contest_type: 'gpp' | 'cash'
   name: string
   entry_fee: number
@@ -16,6 +16,21 @@ export interface Contest {
   position_requirements: Record<string, number>
   created_at: string
   updated_at: string
+  tournament_id?: string
+  tournament?: {
+    id: string
+    external_id: string
+    name: string
+    start_date: string
+    end_date: string
+    status: string
+    course_name: string
+    course_par: number
+    course_yards: number
+    purse: number
+    fedex_points: number
+    field_strength: number
+  }
 }
 
 export interface ContestStats {
