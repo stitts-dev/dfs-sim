@@ -2,14 +2,30 @@ import { useState } from 'react'
 import { useQuery } from 'react-query'
 import { Link } from 'react-router-dom'
 import { formatCurrency, formatNumber, formatDate, cn } from '@/lib/utils'
-import { getContests } from '@/services/api'
+import { getContests, getSupportedSports, type SportInfo, type SportsConfiguration } from '@/services/api'
 import { Contest } from '@/types/contest'
 import { usePreferencesStore } from '@/store/preferences'
+import { env, getFallbackSports, debugLog } from '@/lib/env'
 
 export default function Dashboard() {
   const { beginnerMode } = usePreferencesStore()
   const [selectedSport, setSelectedSport] = useState<string>('all')
   const [selectedPlatform, setSelectedPlatform] = useState<string>('all')
+
+  // Fetch supported sports from backend
+  const { data: sportsConfig, isLoading: sportsLoading } = useQuery(
+    ['supportedSports'],
+    getSupportedSports,
+    {
+      staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+      cacheTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+      retry: 2,
+      retryDelay: 1000,
+      onError: (error) => {
+        debugLog('Sports API failed, using environment fallback:', error)
+      }
+    }
+  )
 
   const { data: contests, isLoading } = useQuery(
     ['contests', selectedSport, selectedPlatform],
@@ -20,14 +36,28 @@ export default function Dashboard() {
     })
   )
 
+  // Create sports array from API response with environment fallback
   const sports = [
     { value: 'all', label: 'All Sports', icon: '🏆' },
-    { value: 'nba', label: 'NBA', icon: '🏀' },
-    { value: 'nfl', label: 'NFL', icon: '🏈' },
-    { value: 'mlb', label: 'MLB', icon: '⚾' },
-    { value: 'nhl', label: 'NHL', icon: '🏒' },
-    { value: 'golf', label: 'Golf', icon: '⛳' },
+    ...(sportsConfig?.sports.map((sport: SportInfo) => ({
+      value: sport.id,
+      label: sport.name,
+      icon: sport.icon
+    })) || getFallbackSports().map(sport => ({
+      value: sport.id,
+      label: sport.name,
+      icon: sport.icon
+    })))
   ]
+  
+  // Use backend golf-only mode or environment fallback
+  const isGolfOnlyMode = sportsConfig?.golf_only_mode ?? env.golfOnlyMode
+  
+  debugLog('Sports configuration:', {
+    backend: sportsConfig,
+    environment: { golfOnlyMode: env.golfOnlyMode, supportedSports: env.supportedSports },
+    final: { sports, isGolfOnlyMode }
+  })
 
   const platforms = [
     { value: 'all', label: 'All Platforms' },
@@ -56,23 +86,40 @@ export default function Dashboard() {
             </p>
           </div>
         )}
+        {isGolfOnlyMode && (
+          <div className="w-full p-3 rounded-lg bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 mb-2">
+            <p className="text-sm text-green-800 dark:text-green-200">
+              ⛳ <strong>Golf Mode:</strong> This platform is optimized for golf contests only.
+            </p>
+          </div>
+        )}
         <div className="flex gap-2">
-          {sports.map((sport) => (
-            <button
-              key={sport.value}
-              onClick={() => setSelectedSport(sport.value)}
-              className={cn(
-                `flex items-center rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200`,
-                selectedSport === sport.value
-                  ? 'bg-blue-600 text-white shadow-lg transform scale-105'
-                  : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
-                beginnerMode && selectedSport === sport.value && 'ring-2 ring-blue-400 ring-offset-2'
-              )}
-            >
-              <span className="mr-2">{sport.icon}</span>
-              {sport.label}
-            </button>
-          ))}
+          {sportsLoading ? (
+            // Show loading skeleton for sports buttons
+            [...Array(3)].map((_, i) => (
+              <div
+                key={i}
+                className="h-10 w-20 animate-pulse rounded-lg bg-gray-200 dark:bg-gray-700"
+              />
+            ))
+          ) : (
+            sports.map((sport) => (
+              <button
+                key={sport.value}
+                onClick={() => setSelectedSport(sport.value)}
+                className={cn(
+                  `flex items-center rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200`,
+                  selectedSport === sport.value
+                    ? 'bg-blue-600 text-white shadow-lg transform scale-105'
+                    : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700',
+                  beginnerMode && selectedSport === sport.value && 'ring-2 ring-blue-400 ring-offset-2'
+                )}
+              >
+                <span className="mr-2">{sport.icon}</span>
+                {sport.label}
+              </button>
+            ))
+          )}
         </div>
 
         <select
@@ -101,7 +148,7 @@ export default function Dashboard() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {contests?.map((contest: Contest) => (
-            <ContestCard key={contest.id} contest={contest} />
+            <ContestCard key={contest.id} contest={contest} sportsConfig={sportsConfig} />
           ))}
         </div>
       )}
@@ -117,9 +164,16 @@ export default function Dashboard() {
   )
 }
 
-function ContestCard({ contest }: { contest: Contest }) {
+function ContestCard({ contest, sportsConfig }: { contest: Contest; sportsConfig?: SportsConfiguration }) {
   const { beginnerMode } = usePreferencesStore()
+  
+  // Create sport icons mapping from API data with fallback
   const sportIcons: Record<string, string> = {
+    ...(sportsConfig?.all_sports.reduce((acc: Record<string, string>, sport: SportInfo) => {
+      acc[sport.id] = sport.icon
+      return acc
+    }, {}) || {}),
+    // Fallback icons
     nba: '🏀',
     nfl: '🏈',
     mlb: '⚾',

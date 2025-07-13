@@ -207,6 +207,22 @@ export const getExportFormats = async (sport?: string, platform?: string) => {
   return data.data
 }
 
+// Sports configuration endpoints
+import type { SportInfo, SportsConfiguration } from '@/types/sports'
+
+// Re-export for convenience
+export type { SportInfo, SportsConfiguration }
+
+export const getSupportedSports = async () => {
+  const { data } = await api.get('/sports/available')
+  return data.data as SportsConfiguration
+}
+
+export const getSportConfiguration = async (sport: string) => {
+  const { data } = await api.get(`/sports/${sport}`)
+  return data.data as SportInfo
+}
+
 // WebSocket connection
 export const connectWebSocket = () => {
   // For production builds with full API URL, create WebSocket URL

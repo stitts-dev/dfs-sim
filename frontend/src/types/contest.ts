@@ -1,7 +1,10 @@
+// Valid sport types - can be extended dynamically
+export type SportType = 'nba' | 'nfl' | 'mlb' | 'nhl' | 'golf' | string
+
 export interface Contest {
   id: number
   platform: 'draftkings' | 'fanduel'
-  sport: 'nba' | 'nfl' | 'mlb' | 'nhl' | 'golf'
+  sport: SportType
   contest_type: 'gpp' | 'cash'
   name: string
   entry_fee: number

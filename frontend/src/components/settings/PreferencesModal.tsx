@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
-import { cn } from '@/lib/utils'
+import { Dialog, DialogTitle, DialogBody, DialogActions } from '@/catalyst-ui-kit/typescript/dialog'
+import { Button } from '@/catalyst-ui-kit/typescript/button'
+import { cn } from '@/lib/catalyst'
 import { usePreferencesStore } from '@/store/preferences'
 import { usePreferences } from '@/hooks/usePreferences'
 
@@ -116,68 +118,71 @@ export default function PreferencesModal({ isOpen, onClose }: PreferencesModalPr
     setUnsavedChanges(true)
   }
 
-  if (!isOpen) return null
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fade-in"
-        onClick={handleCancel}
-      />
-      
-      {/* Modal */}
-      <div className="relative glass rounded-2xl shadow-glow-xl w-full max-w-4xl max-h-[85vh] overflow-hidden animate-scale-in">
-        {/* Header */}
-        <div className="border-b border-gray-200/20 p-6 dark:border-gray-700/20">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <span className="text-3xl">⚙️</span>
-                Preferences & Settings
-              </h2>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                Customize your DFS Optimizer experience
-              </p>
-            </div>
-            <button
-              onClick={handleCancel}
-              className="rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              aria-label="Close preferences"
-            >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+    <Dialog 
+      open={isOpen} 
+      onClose={handleCancel}
+      size="4xl"
+      className="max-h-[85vh] overflow-hidden"
+    >
+      {/* Header */}
+      <div className="border-b border-gray-200/20 pb-6 dark:border-gray-700/20">
+        <div className="flex items-center justify-between">
+          <div>
+            <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+              <span className="text-3xl">⚙️</span>
+              Preferences & Settings
+            </DialogTitle>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+              Customize your DFS Optimizer experience
+            </p>
           </div>
+          <Button
+            plain
+            onClick={handleCancel}
+            aria-label="Close preferences"
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </Button>
+        </div>
           
-          {/* Tabs */}
-          <div className="mt-6 flex space-x-1">
-            {([
-              { id: 'display', label: 'Display', icon: '🎨' },
-              { id: 'ai', label: 'AI Settings', icon: '🤖' },
-              { id: 'sports', label: 'Sports', icon: '🏆' },
-              { id: 'advanced', label: 'Advanced', icon: '🔧' },
-            ] as const).map((tab) => (
-              <button
+        {/* Tabs */}
+        <div className="mt-6 flex space-x-1">
+          {([
+            { id: 'display', label: 'Display', icon: '🎨' },
+            { id: 'ai', label: 'AI Settings', icon: '🤖' },
+            { id: 'sports', label: 'Sports', icon: '🏆' },
+            { id: 'advanced', label: 'Advanced', icon: '🔧' },
+          ] as const).map((tab) => 
+            activeTab === tab.id ? (
+              <Button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
-                  activeTab === tab.id
-                    ? 'bg-blue-500 text-white shadow-lg'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                )}
+                color="blue"
+                className="text-sm"
               >
                 <span className="mr-2">{tab.icon}</span>
                 {tab.label}
-              </button>
-            ))}
-          </div>
+              </Button>
+            ) : (
+              <Button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                plain
+                className="text-sm"
+              >
+                <span className="mr-2">{tab.icon}</span>
+                {tab.label}
+              </Button>
+            )
+          )}
         </div>
+      </div>
         
-        {/* Content */}
-        <div className="overflow-y-auto max-h-[calc(85vh-240px)] p-6">
+      {/* Content */}
+      <DialogBody className="overflow-y-auto max-h-[calc(85vh-240px)]">
           {error && (
             <div className="mb-6 glass bg-red-500/10 border-red-500/20 rounded-lg p-4">
               <p className="text-sm text-red-600 dark:text-red-400">
@@ -423,32 +428,42 @@ export default function PreferencesModal({ isOpen, onClose }: PreferencesModalPr
                 </p>
                 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {SPORTS.map((sport) => (
-                    <button
-                      key={sport.id}
-                      onClick={() => toggleSport(sport.id)}
-                      className={cn(
-                        'glass rounded-lg p-4 hover:shadow-lg transition-all duration-200',
-                        formValues.preferredSports.includes(sport.id)
-                          ? 'bg-blue-500/10 border-blue-500/30 shadow-glow'
-                          : 'hover:bg-gray-100 dark:hover:bg-gray-800'
-                      )}
-                    >
-                      <div className="text-center">
-                        <span className="text-3xl">{sport.emoji}</span>
-                        <p className="mt-2 font-medium text-gray-900 dark:text-white">
-                          {sport.name}
-                        </p>
-                        {formValues.preferredSports.includes(sport.id) && (
+                  {SPORTS.map((sport) => 
+                    formValues.preferredSports.includes(sport.id) ? (
+                      <Button
+                        key={sport.id}
+                        onClick={() => toggleSport(sport.id)}
+                        color="blue"
+                        className="p-4 h-auto"
+                      >
+                        <div className="text-center">
+                          <span className="text-3xl">{sport.emoji}</span>
+                          <p className="mt-2 font-medium">
+                            {sport.name}
+                          </p>
                           <div className="mt-2">
-                            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-white">
+                            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-white">
                               ✓
                             </span>
                           </div>
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                        </div>
+                      </Button>
+                    ) : (
+                      <Button
+                        key={sport.id}
+                        onClick={() => toggleSport(sport.id)}
+                        outline
+                        className="p-4 h-auto"
+                      >
+                        <div className="text-center">
+                          <span className="text-3xl">{sport.emoji}</span>
+                          <p className="mt-2 font-medium">
+                            {sport.name}
+                          </p>
+                        </div>
+                      </Button>
+                    )
+                  )}
                 </div>
               </div>
             </div>
@@ -479,16 +494,17 @@ export default function PreferencesModal({ isOpen, onClose }: PreferencesModalPr
                       {store.tutorialProgress.skipped.length}
                     </span>
                   </div>
-                  <button
+                  <Button
                     onClick={() => {
                       if (confirm('Are you sure you want to reset tutorial progress?')) {
                         store.resetTutorial()
                       }
                     }}
-                    className="mt-4 w-full glass rounded-lg px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                    plain
+                    className="mt-4 w-full"
                   >
                     Reset Tutorial Progress
-                  </button>
+                  </Button>
                 </div>
               </div>
 
@@ -501,8 +517,8 @@ export default function PreferencesModal({ isOpen, onClose }: PreferencesModalPr
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                   Your preferences are stored locally and synced with your account for a consistent experience across devices.
                 </p>
-                <button
-                  className="glass rounded-lg px-4 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                <Button
+                  color="red"
                   onClick={() => {
                     if (confirm('This will clear all local data. Are you sure?')) {
                       localStorage.clear()
@@ -511,47 +527,39 @@ export default function PreferencesModal({ isOpen, onClose }: PreferencesModalPr
                   }}
                 >
                   Clear Local Data
-                </button>
+                </Button>
               </div>
             </div>
           )}
-        </div>
+      </DialogBody>
+      
+      {/* Footer */}
+      <DialogActions className="border-t border-gray-200/20 pt-6 dark:border-gray-700/20">
+        <Button
+          onClick={handleReset}
+          disabled={isLoading}
+          plain
+          className="mr-auto"
+        >
+          Reset to Defaults
+        </Button>
         
-        {/* Footer */}
-        <div className="border-t border-gray-200/20 p-6 dark:border-gray-700/20">
-          <div className="flex items-center justify-between">
-            <button
-              onClick={handleReset}
-              disabled={isLoading}
-              className="glass rounded-lg px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
-            >
-              Reset to Defaults
-            </button>
-            
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleCancel}
-                disabled={isLoading}
-                className="rounded-lg px-6 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={isLoading || !unsavedChanges}
-                className={cn(
-                  'rounded-lg px-6 py-2 text-sm font-medium transition-all duration-200 disabled:opacity-50',
-                  unsavedChanges
-                    ? 'bg-blue-500 text-white hover:bg-blue-600 shadow-lg'
-                    : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
-                )}
-              >
-                {isLoading ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+        <Button
+          onClick={handleCancel}
+          disabled={isLoading}
+          plain
+        >
+          Cancel
+        </Button>
+        
+        <Button
+          onClick={handleSave}
+          disabled={isLoading || !unsavedChanges}
+          color={unsavedChanges ? 'blue' : 'zinc'}
+        >
+          {isLoading ? 'Saving...' : 'Save Changes'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   )
 }

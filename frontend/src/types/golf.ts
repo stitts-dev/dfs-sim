@@ -73,6 +73,13 @@ export interface GolfPlayer {
   top10_probability?: number
   top25_probability?: number
   win_probability?: number
+  expected_score?: number
+  confidence?: number
+  status?: string
+  current_position?: number
+  total_score?: number
+  thru_holes?: number
+  rounds_scores?: number[]
 }
 
 export interface GolfRoundScore {

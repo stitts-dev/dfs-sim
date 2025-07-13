@@ -89,6 +89,43 @@ export const GolfPlayerCard: React.FC<GolfPlayerCardProps> = ({
             </div>
           </div>
 
+          {player.expected_score && (
+            <div className="text-xs text-center mb-2 p-2 bg-gray-50 dark:bg-gray-900 rounded">
+              <span className="text-gray-600 dark:text-gray-400">Expected Score: </span>
+              <span className="font-semibold">
+                {player.expected_score > 0 
+                  ? `+${player.expected_score.toFixed(1)}`
+                  : player.expected_score.toFixed(1)
+                }
+              </span>
+              {player.win_probability && player.win_probability > 0.01 && (
+                <span className="ml-2 text-green-600 dark:text-green-400">
+                  • Win: {(player.win_probability * 100).toFixed(1)}%
+                </span>
+              )}
+            </div>
+          )}
+
+          {(player.current_position || player.total_score) && (
+            <div className="text-xs text-center mb-2 p-1 bg-blue-50 dark:bg-blue-900/20 rounded">
+              {player.current_position && (
+                <span className="text-blue-700 dark:text-blue-300">
+                  T{player.current_position}
+                </span>
+              )}
+              {player.total_score && (
+                <span className="ml-2 font-semibold">
+                  {player.total_score > 0 ? `+${player.total_score}` : player.total_score}
+                </span>
+              )}
+              {player.thru_holes && (
+                <span className="ml-2 text-gray-600 dark:text-gray-400">
+                  ({player.thru_holes} holes)
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="flex justify-between items-center text-xs mb-3">
             <div>
               <span className="text-gray-600 dark:text-gray-400">Floor: </span>

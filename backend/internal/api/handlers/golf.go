@@ -203,7 +203,29 @@ func (h *GolfHandler) GetTournamentPlayers(c *gin.Context) {
 		return
 	}
 
-	// Convert to player format with golf-specific data
+	// Generate projections for all players
+	playerModels := make([]models.Player, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Player != nil {
+			playerModels = append(playerModels, *entry.Player)
+		}
+	}
+
+	projections := make(map[uint]*models.GolfProjection)
+	if len(playerModels) > 0 {
+		projectionMap, _, err := h.projectionService.GenerateProjections(
+			c.Request.Context(),
+			playerModels,
+			tournament.ID.String(),
+		)
+		if err != nil {
+			h.logger.Warn("Failed to generate projections", "error", err)
+		} else {
+			projections = projectionMap
+		}
+	}
+
+	// Convert to player format with golf-specific data and projections
 	players := make([]gin.H, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Player == nil {
@@ -232,13 +254,81 @@ func (h *GolfHandler) GetTournamentPlayers(c *gin.Context) {
 			player["ownership"] = entry.FDOwnership
 		}
 
+		// Add projection data if available
+		if projection, exists := projections[entry.Player.ID]; exists {
+			player["cut_probability"] = projection.CutProbability
+			player["top10_probability"] = projection.Top10Probability
+			player["top25_probability"] = projection.Top25Probability
+			player["win_probability"] = projection.WinProbability
+			player["expected_score"] = projection.ExpectedScore
+			player["confidence"] = projection.Confidence
+
+			// Add platform-specific projected points
+			var projectedPoints float64
+			if platform == "draftkings" {
+				projectedPoints = projection.DKPoints
+			} else {
+				projectedPoints = projection.FDPoints
+			}
+			
+			player["projected_points"] = projectedPoints
+			
+			// Calculate floor and ceiling based on confidence and probabilities
+			confidenceFactor := projection.Confidence
+			cutRisk := 1.0 - projection.CutProbability
+			
+			// Floor: Conservative estimate considering cut risk
+			floorMultiplier := 0.6 + (confidenceFactor * 0.2) - (cutRisk * 0.4)
+			if floorMultiplier < 0.1 {
+				floorMultiplier = 0.1
+			}
+			player["floor_points"] = projectedPoints * floorMultiplier
+			
+			// Ceiling: Optimistic estimate based on upside potential
+			ceilingMultiplier := 1.2 + (projection.Top10Probability * 0.8) + (projection.WinProbability * 1.0)
+			player["ceiling_points"] = projectedPoints * ceilingMultiplier
+		} else {
+			// Provide reasonable defaults if no projections available
+			var salary float64
+			if platform == "draftkings" {
+				salary = float64(entry.DKSalary)
+			} else {
+				salary = float64(entry.FDSalary)
+			}
+			
+			// Default projections based on salary tier
+			basePoints := salary / 200 // Simple salary-to-points conversion
+			player["projected_points"] = basePoints
+			player["floor_points"] = basePoints * 0.5
+			player["ceiling_points"] = basePoints * 1.8
+			player["cut_probability"] = 0.5
+		}
+
 		players = append(players, player)
 	}
 
+	// Add tournament context information
+	tournamentInfo := gin.H{
+		"id":           tournament.ID,
+		"name":         tournament.Name,
+		"course_name":  tournament.CourseName,
+		"course_par":   tournament.CoursePar,
+		"purse":        tournament.Purse,
+		"status":       tournament.Status,
+		"cut_line":     tournament.CutLine,
+		"current_round": tournament.CurrentRound,
+		"field_size":   len(players),
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"tournament": tournament,
+		"tournament": tournamentInfo,
 		"players":    players,
 		"platform":   platform,
+		"stats": gin.H{
+			"total_players": len(players),
+			"avg_salary":    calculateAverageSalary(entries, platform),
+			"projection_coverage": fmt.Sprintf("%.1f%%", float64(len(projections))/float64(len(players))*100),
+		},
 	})
 }
 
@@ -497,4 +587,34 @@ func (h *GolfHandler) GetTournamentSchedule(c *gin.Context) {
 	h.cache.SetSimple(cacheKey, response, 24*time.Hour)
 
 	c.JSON(http.StatusOK, response)
+}
+
+// calculateAverageSalary calculates the average salary for a platform
+func calculateAverageSalary(entries []models.GolfPlayerEntry, platform string) float64 {
+	if len(entries) == 0 {
+		return 0
+	}
+
+	totalSalary := 0.0
+	count := 0
+
+	for _, entry := range entries {
+		var salary int
+		if platform == "draftkings" {
+			salary = entry.DKSalary
+		} else {
+			salary = entry.FDSalary
+		}
+
+		if salary > 0 {
+			totalSalary += float64(salary)
+			count++
+		}
+	}
+
+	if count == 0 {
+		return 0
+	}
+
+	return totalSalary / float64(count)
 }

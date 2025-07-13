@@ -27,6 +27,7 @@ func SetupRoutes(group *gin.RouterGroup, db *database.DB, cache *services.CacheS
 	glossaryHandler := handlers.NewGlossaryHandler(db, cache)
 	preferencesHandler := handlers.NewPreferencesHandler(db, cache)
 	aiRecommendationHandler := handlers.NewAIRecommendationHandler(aiService)
+	sportsHandler := handlers.NewSportsHandler(cfg)
 	// Create a logger for the golf handler
 	// TODO: Add logger to config or use a global logger
 	logger := logrus.New()
@@ -48,6 +49,10 @@ func SetupRoutes(group *gin.RouterGroup, db *database.DB, cache *services.CacheS
 
 	// Player endpoints
 	group.GET("/players/:id", playerHandler.GetPlayer)
+
+	// Sports configuration endpoints
+	group.GET("/sports/available", sportsHandler.GetAvailableSports)
+	group.GET("/sports/:sport", sportsHandler.GetSportConfiguration)
 
 	// Glossary endpoints
 	group.GET("/glossary", glossaryHandler.GetGlossaryTerms)
