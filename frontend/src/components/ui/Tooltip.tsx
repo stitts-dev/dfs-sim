@@ -140,7 +140,7 @@ export default function Tooltip({
 
   return (
     <>
-      {cloneElement(children as ReactElement<any>, {
+      {cloneElement(children as ReactElement, {
         ref: refs.setReference,
         ...getReferenceProps(),
       })}

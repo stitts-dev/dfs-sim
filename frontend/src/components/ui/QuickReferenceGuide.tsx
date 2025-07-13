@@ -216,7 +216,14 @@ export default function QuickReferenceGuide({ isOpen, onClose }: QuickReferenceG
   )
 }
 
-function PositionCard({ position, info }: { position: string; info: any }) {
+interface PositionInfo {
+  name: string
+  description: string
+  keyStats: string[]
+  emoji: string
+}
+
+function PositionCard({ position, info }: { position: string; info: PositionInfo }) {
   return (
     <div className="glass rounded-lg p-4 hover:shadow-lg transition-all duration-200">
       <div className="flex items-start gap-3">

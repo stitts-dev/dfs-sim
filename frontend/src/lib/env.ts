@@ -71,7 +71,7 @@ export function getFallbackSports() {
 }
 
 // Debug logging utility
-export function debugLog(...args: any[]) {
+export function debugLog(...args: unknown[]) {
   if (env.enableDebugLogs) {
     console.log('[DEBUG]', ...args)
   }

@@ -77,13 +77,23 @@ function DroppableSlot({ index, position, player, sport, onRemove }: DroppableSl
   )
 }
 
+type DisplayLineup = Lineup | {
+  id?: number
+  players: Player[]
+  total_salary: number
+  projected_points: number
+  simulated_ceiling?: number
+  simulated_floor?: number
+  simulated_mean?: number
+}
+
 interface LineupBuilderProps {
   contest?: Contest
   lineup: Player[]
   allPlayers: Player[]
-  optimizedLineups: Lineup[]
+  optimizedLineups: DisplayLineup[]
   onLineupChange: (lineup: Player[]) => void
-  onSelectLineup: (lineup: Lineup) => void
+  onSelectLineup: (lineup: DisplayLineup) => void
 }
 
 export default function LineupBuilder({

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Dialog, DialogTitle, DialogBody, DialogActions } from '@/catalyst-ui-kit/typescript/dialog'
-import { Button } from '@/catalyst-ui-kit/typescript/button'
+import { Dialog, DialogTitle, DialogBody, DialogActions } from '@/catalyst/Dialog'
+import { Button } from '@/catalyst/Button'
 import { cn } from '@/lib/catalyst'
 import { usePreferencesStore } from '@/store/preferences'
 import { usePreferences } from '@/hooks/usePreferences'
@@ -92,14 +92,14 @@ export default function PreferencesModal({ isOpen, onClose }: PreferencesModalPr
     onClose()
   }
 
-  const updateFormValue = (path: string, value: any) => {
+  const updateFormValue = (path: string, value: unknown) => {
     setFormValues(prev => {
       const newValues = { ...prev }
       const keys = path.split('.')
-      let current: any = newValues
+      let current: Record<string, unknown> = newValues as Record<string, unknown>
       
       for (let i = 0; i < keys.length - 1; i++) {
-        current = current[keys[i]]
+        current = current[keys[i]] as Record<string, unknown>
       }
       
       current[keys[keys.length - 1]] = value

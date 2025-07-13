@@ -24,12 +24,22 @@ import { OptimizeConfig } from '@/types/optimizer'
 import { getPositionRequirements } from '@/lib/lineup-utils'
 import { formatCurrency, formatNumber, cn, getPositionColor } from '@/lib/utils'
 
+type OptimizedLineup = {
+  id?: number
+  players: Player[]
+  total_salary: number
+  projected_points: number
+  simulated_ceiling: number
+  simulated_floor: number
+  simulated_mean: number
+}
+
 export default function Optimizer() {
   const [searchParams] = useSearchParams()
   const contestId = parseInt(searchParams.get('contest') || '0')
   
   const [currentLineup, setCurrentLineup] = useState<Player[]>([])
-  const [optimizedLineups, setOptimizedLineups] = useState<Lineup[]>([])
+  const [optimizedLineups, setOptimizedLineups] = useState<OptimizedLineup[]>([])
   const [isOptimizing, setIsOptimizing] = useState(false)
   const [selectedPlayers, setSelectedPlayers] = useState<Set<number>>(new Set())
   const [lockedPlayers, setLockedPlayers] = useState<Set<number>>(new Set())
@@ -107,17 +117,18 @@ export default function Optimizer() {
       setOptimizedLineups(result.lineups)
       setCurrentLineup(result.lineups[0].players)
       toast.success(`Generated ${result.lineups.length} optimized lineups!`)
-    } catch (error: any) {
+    } catch (error) {
       console.error('Optimization failed:', error)
       
       // Provide more specific error messages
-      if (error.response?.status === 404) {
+      const errorResponse = error as { response?: { status: number; data?: { message?: string } } }
+      if (errorResponse.response?.status === 404) {
         toast.error('Optimization endpoint not found. Please ensure backend is running.')
-      } else if (error.response?.status === 400) {
-        toast.error(error.response?.data?.message || 'Invalid optimization parameters')
-      } else if (error.response?.status === 500) {
+      } else if (errorResponse.response?.status === 400) {
+        toast.error(errorResponse.response?.data?.message || 'Invalid optimization parameters')
+      } else if (errorResponse.response?.status === 500) {
         toast.error('Server error during optimization. Please try again.')
-      } else if (error.code === 'ECONNREFUSED') {
+      } else if ((error as { code?: string }).code === 'ECONNREFUSED') {
         toast.error('Cannot connect to backend. Please ensure the server is running.')
       } else {
         toast.error('Optimization failed. Please check your constraints and try again.')
@@ -238,7 +249,7 @@ export default function Optimizer() {
     }
   }
 
-  const handleDragStart = (event: any) => {
+  const handleDragStart = (event: { active: { id: string | number } }) => {
     setActiveId(Number(event.active.id))
   }
 
@@ -366,16 +377,16 @@ export default function Optimizer() {
                 allPlayers={players || []}
                 optimizedLineups={optimizedLineups}
                 onLineupChange={setCurrentLineup}
-                onSelectLineup={(lineup: Lineup) => setCurrentLineup(lineup.players)}
+                onSelectLineup={(lineup) => setCurrentLineup(lineup.players)}
               />
 
               {/* AI Analysis - Only show for saved lineups from optimizedLineups */}
               <LineupAnalyzer
                 lineup={optimizedLineups.length > 0 && currentLineup.length > 0 ? 
-                  optimizedLineups.find(l => 
+                  (optimizedLineups.find(l => 
                     l.players.length === currentLineup.length &&
                     l.players.every(p => currentLineup.some(cp => cp.id === p.id))
-                  ) || null
+                  ) as Lineup | undefined) || null
                   : null
                 }
                 contest={contest}

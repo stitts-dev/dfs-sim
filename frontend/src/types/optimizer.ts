@@ -1,3 +1,5 @@
+import { Player } from './player'
+
 export interface OptimizeConfig {
   contest_id: number
   num_lineups: number
@@ -19,7 +21,15 @@ export interface StackingRule {
 }
 
 export interface OptimizerResult {
-  lineups: any[] // Would be Lineup[] but avoiding circular dependency
+  lineups: Array<{
+    id?: number
+    players: Player[]
+    total_salary: number
+    projected_points: number
+    simulated_ceiling: number
+    simulated_floor: number
+    simulated_mean: number
+  }>
   optimization_time_ms: number
   total_combinations: number
   valid_combinations: number

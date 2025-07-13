@@ -31,12 +31,29 @@ export interface LineupAnalysisRequest {
   sport: string
 }
 
+export interface StackingAnalysis {
+  team_stacks: Array<{
+    team: string
+    players: string[]
+    score: number
+    reasoning: string
+  }>
+  game_stacks: Array<{
+    game: string
+    players: string[]
+    score: number
+    reasoning: string
+  }>
+  correlation_score: number
+  stack_recommendations: string[]
+}
+
 export interface LineupAnalysis {
   overall_score: number
   strengths: string[]
   weaknesses: string[]
   improvements: string[]
-  stacking_analysis: Record<string, any>
+  stacking_analysis: StackingAnalysis
   risk_level: 'low' | 'medium' | 'high'
   beginner_insights?: string[]
 }

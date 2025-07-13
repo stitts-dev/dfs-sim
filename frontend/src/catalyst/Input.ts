@@ -1,0 +1,1 @@
+export { Input } from '../catalyst-ui-kit/typescript/input'

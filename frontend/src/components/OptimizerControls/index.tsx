@@ -218,7 +218,7 @@ export default function OptimizerControls({
                     <div key={index} className="flex items-center space-x-2 rounded-lg border border-gray-200 p-2 dark:border-gray-600">
                       <select
                         value={rule.type}
-                        onChange={(e) => updateStackingRule(index, { type: e.target.value as any })}
+                        onChange={(e) => updateStackingRule(index, { type: e.target.value as 'team' | 'game' | 'mini' | 'qb_stack' })}
                         className="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700"
                       >
                         <option value="game" title="Stack players from the same game (e.g., QB + pass catchers + opposing pass catchers)">Game Stack</option>

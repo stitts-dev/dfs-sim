@@ -2,6 +2,7 @@ import {
   GolfTournament,
   GolfLeaderboard,
   GolfPlayer,
+  GolfPlayerEntry,
   GolfProjection,
   GolfCourseHistory,
   GolfOptimizationParams,
@@ -223,7 +224,7 @@ const golfAPI = {
     return `${suffix}${position}`
   },
 
-  calculateCutLine(entries: any[]): number {
+  calculateCutLine(entries: GolfPlayerEntry[]): number {
     // Simplified cut calculation - top 70 and ties
     const sortedEntries = [...entries].sort((a, b) => a.total_score - b.total_score)
     if (sortedEntries.length <= 70) return 999 // Everyone makes cut

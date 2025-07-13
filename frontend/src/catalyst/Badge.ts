@@ -1,0 +1,1 @@
+export { Badge } from '../catalyst-ui-kit/typescript/badge'

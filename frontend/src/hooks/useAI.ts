@@ -138,13 +138,14 @@ export function useLineupAnalysis() {
         suggestions: response.analysis.improvements,
         score: response.analysis.overall_score
       })
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to analyze lineup:', error)
       
       // Provide more specific error messages
-      if (error.response?.data?.error?.message) {
-        toast.error(error.response.data.error.message)
-      } else if (error.response?.status === 404) {
+      const errorResponse = error as { response?: { status: number; data?: { error?: { message?: string }; message?: string } } }
+      if (errorResponse.response?.data?.error?.message) {
+        toast.error(errorResponse.response.data.error.message)
+      } else if (errorResponse.response?.status === 404) {
         toast.error('Lineup not found. Please save your lineup first.')
       } else {
         toast.error('Failed to analyze lineup. Please try again.')

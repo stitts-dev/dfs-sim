@@ -4,7 +4,8 @@ import {
   LineupAnalysisRequest,
   AIRecommendationResponse,
   AIAnalysisResponse,
-  RecommendationHistoryItem
+  RecommendationHistoryItem,
+  PlayerRecommendation
 } from '@/types/ai'
 
 // Use relative URL so Vite proxy can handle it
@@ -51,7 +52,7 @@ export const aiService = {
 }
 
 // Helper function to format AI recommendations
-export function formatRecommendation(rec: any): string {
+export function formatRecommendation(rec: PlayerRecommendation): string {
   let text = `${rec.player_name} (${rec.position}, ${rec.team})`
   if (rec.confidence >= 0.8) {
     text = `⭐ ${text}`
