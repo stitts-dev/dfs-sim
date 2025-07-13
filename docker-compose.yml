@@ -46,6 +46,16 @@ services:
       BALLDONTLIE_API_KEY: ${BALLDONTLIE_API_KEY:-demo-key}
       THESPORTSDB_API_KEY: ${THESPORTSDB_API_KEY:-123}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # SMS Configuration
+      SMS_PROVIDER: ${SMS_PROVIDER:-mock}
+      # Supabase Configuration
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      # Twilio Configuration
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER}
     ports:
       - "8080:8080"
     depends_on:
@@ -60,6 +70,8 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: http://localhost:8080/api/v1
+        VITE_SUPABASE_URL: ${SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
     container_name: dfs_frontend
     ports:
       - "5173:5173"
