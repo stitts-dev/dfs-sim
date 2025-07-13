@@ -15,12 +15,12 @@ type TwilioSMSService struct {
 	client         *twilio.RestClient
 	fromNumber     string
 	logger         *log.Logger
-	circuitBreaker CircuitBreaker
+	circuitBreaker SMSCircuitBreaker
 	rateLimiter    RateLimiter
 }
 
-// CircuitBreaker interface for handling external service failures
-type CircuitBreaker interface {
+// SMSCircuitBreaker interface for handling external service failures
+type SMSCircuitBreaker interface {
 	State() string
 	RecordSuccess()
 	RecordFailure()
@@ -32,7 +32,7 @@ type RateLimiter interface {
 	Allow(phoneNumber string) error
 }
 
-// Simple in-memory circuit breaker implementation
+// Simple in-memory circuit breaker implementation that implements SMSCircuitBreaker
 type simpleCircuitBreaker struct {
 	failures    int
 	lastFailure time.Time

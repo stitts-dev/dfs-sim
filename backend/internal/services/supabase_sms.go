@@ -17,7 +17,7 @@ type SupabaseSMSService struct {
 	projectURL string
 	httpClient *http.Client
 	logger     *log.Logger
-	circuitBreaker CircuitBreaker
+	circuitBreaker SMSCircuitBreaker
 	rateLimiter    RateLimiter
 }
 
