@@ -65,6 +65,9 @@ func runMigrations(db *database.DB) error {
 
 	// Auto migrate all models
 	if err := db.AutoMigrate(
+		&models.User{},
+		&models.SubscriptionTier{},
+		&models.PhoneVerificationCode{},
 		&models.Contest{},
 		&models.Player{},
 		&models.Lineup{},
@@ -81,6 +84,14 @@ func runMigrations(db *database.DB) error {
 
 	// Create indexes
 	indexes := []string{
+		// User-related indexes
+		"CREATE INDEX IF NOT EXISTS idx_users_phone_number ON users(phone_number)",
+		"CREATE INDEX IF NOT EXISTS idx_users_subscription_tier ON users(subscription_tier)",
+		"CREATE INDEX IF NOT EXISTS idx_users_stripe_customer_id ON users(stripe_customer_id)",
+		"CREATE INDEX IF NOT EXISTS idx_users_usage_reset_date ON users(usage_reset_date)",
+		"CREATE INDEX IF NOT EXISTS idx_phone_verification_phone ON phone_verification_codes(phone_number)",
+		"CREATE INDEX IF NOT EXISTS idx_phone_verification_expires ON phone_verification_codes(expires_at)",
+		// Existing indexes
 		"CREATE INDEX IF NOT EXISTS idx_players_contest_sport ON players(contest_id, sport)",
 		"CREATE INDEX IF NOT EXISTS idx_players_team ON players(team)",
 		"CREATE INDEX IF NOT EXISTS idx_players_position ON players(position)",
@@ -109,7 +120,10 @@ func runMigrations(db *database.DB) error {
 func dropTables(db *database.DB) error {
 	// Drop tables in reverse order to handle foreign key constraints
 	tables := []string{
+		"phone_verification_codes",
 		"user_preferences",
+		"subscription_tiers",
+		"users",
 		"ai_recommendations",
 		"glossary_terms",
 		"team_infos",

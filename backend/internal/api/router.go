@@ -18,6 +18,8 @@ func SetupRoutes(group *gin.RouterGroup, db *database.DB, cache *services.CacheS
 	aiService := services.NewAIRecommendationService(db, cfg, cache)
 
 	// Initialize handlers
+	authHandler := handlers.NewAuthHandler(db, cache, cfg)
+	subscriptionHandler := handlers.NewSubscriptionHandler(db, cache)
 	playerHandler := handlers.NewPlayerHandler(db, cache, aggregator, dataFetcher, cfg)
 	lineupHandler := handlers.NewLineupHandler(db, cache)
 	optimizerHandler := handlers.NewOptimizerHandler(db, cache, cfg)
@@ -35,6 +37,14 @@ func SetupRoutes(group *gin.RouterGroup, db *database.DB, cache *services.CacheS
 
 	// Log that we're setting up routes
 	fmt.Println("DEBUG: Setting up API routes...")
+
+	// Authentication routes (public)
+	authHandler.RegisterRoutes(group)
+
+	// Subscription routes (with optional auth for development)
+	subGroup := group.Group("/subscription")
+	subGroup.Use(middleware.OptionalUsageCheck(db))
+	subscriptionHandler.RegisterRoutes(group)
 
 	// Public routes - no leading slash
 	// Contest endpoints
@@ -68,10 +78,14 @@ func SetupRoutes(group *gin.RouterGroup, db *database.DB, cache *services.CacheS
 	group.DELETE("/lineups/:id", lineupHandler.DeleteLineup)
 	group.POST("/lineups/:id/submit", lineupHandler.SubmitLineup)
 
-	// Optimization endpoints (temporarily public for development)
-	// TODO: Re-enable authentication in production
-	group.POST("/optimize", optimizerHandler.OptimizeLineups)
-	group.POST("/optimize/validate", optimizerHandler.ValidateLineup)
+	// Optimization endpoints with usage tracking
+	group.POST("/optimize", 
+		middleware.CheckUsageLimit(db, middleware.UsageOptimization),
+		optimizerHandler.OptimizeLineups,
+		middleware.IncrementUsage(db, middleware.UsageOptimization))
+	group.POST("/optimize/validate", 
+		middleware.OptionalUsageCheck(db),
+		optimizerHandler.ValidateLineup)
 
 	// User preferences endpoints (with optional authentication)
 	prefGroup := group.Group("/user/preferences")
@@ -112,10 +126,16 @@ func SetupRoutes(group *gin.RouterGroup, db *database.DB, cache *services.CacheS
 	{
 		auth.GET("/optimize/constraints/:contestId", optimizerHandler.GetConstraints)
 
-		// Simulation endpoints
-		auth.POST("/simulate", simulationHandler.RunSimulation)
+		// Simulation endpoints with usage tracking
+		auth.POST("/simulate", 
+			middleware.CheckUsageLimit(db, middleware.UsageSimulation),
+			simulationHandler.RunSimulation,
+			middleware.IncrementUsage(db, middleware.UsageSimulation))
 		auth.GET("/simulations/:lineupId", simulationHandler.GetSimulationResult)
-		auth.POST("/simulate/batch", simulationHandler.BatchSimulate)
+		auth.POST("/simulate/batch", 
+			middleware.CheckUsageLimit(db, middleware.UsageSimulation),
+			simulationHandler.BatchSimulate,
+			middleware.IncrementUsage(db, middleware.UsageSimulation))
 
 		// Export endpoints
 		auth.POST("/export", exportHandler.ExportLineups)

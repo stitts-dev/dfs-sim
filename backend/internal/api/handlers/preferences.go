@@ -50,20 +50,21 @@ func (h *PreferencesHandler) GetPreferences(c *gin.Context) {
 		return
 	}
 
-	// Convert user ID to int
-	var userID int
+	// Convert user ID to uint
+	var userID uint
 	switch v := userIDValue.(type) {
 	case uint:
-		userID = int(v)
-	case int:
 		userID = v
+	case int:
+		userID = uint(v)
 	case string:
 		var err error
-		userID, err = strconv.Atoi(v)
+		parsed, err := strconv.Atoi(v)
 		if err != nil {
 			utils.SendInternalError(c, "Invalid user ID format")
 			return
 		}
+		userID = uint(parsed)
 	default:
 		utils.SendInternalError(c, "Invalid user ID type")
 		return
@@ -144,20 +145,21 @@ func (h *PreferencesHandler) UpdatePreferences(c *gin.Context) {
 		return
 	}
 
-	// Convert user ID to int
-	var userID int
+	// Convert user ID to uint
+	var userID uint
 	switch v := userIDValue.(type) {
 	case uint:
-		userID = int(v)
-	case int:
 		userID = v
+	case int:
+		userID = uint(v)
 	case string:
 		var err error
-		userID, err = strconv.Atoi(v)
+		parsed, err := strconv.Atoi(v)
 		if err != nil {
 			utils.SendInternalError(c, "Invalid user ID format")
 			return
 		}
+		userID = uint(parsed)
 	default:
 		utils.SendInternalError(c, "Invalid user ID type")
 		return
@@ -270,20 +272,21 @@ func (h *PreferencesHandler) ResetPreferences(c *gin.Context) {
 		return
 	}
 
-	// Convert user ID to int
-	var userID int
+	// Convert user ID to uint
+	var userID uint
 	switch v := userIDValue.(type) {
 	case uint:
-		userID = int(v)
-	case int:
 		userID = v
+	case int:
+		userID = uint(v)
 	case string:
 		var err error
-		userID, err = strconv.Atoi(v)
+		parsed, err := strconv.Atoi(v)
 		if err != nil {
 			utils.SendInternalError(c, "Invalid user ID format")
 			return
 		}
+		userID = uint(parsed)
 	default:
 		utils.SendInternalError(c, "Invalid user ID type")
 		return
@@ -331,20 +334,21 @@ func (h *PreferencesHandler) MigratePreferences(c *gin.Context) {
 		return
 	}
 
-	// Convert user ID to int
-	var userID int
+	// Convert user ID to uint
+	var userID uint
 	switch v := userIDValue.(type) {
 	case uint:
-		userID = int(v)
-	case int:
 		userID = v
+	case int:
+		userID = uint(v)
 	case string:
 		var err error
-		userID, err = strconv.Atoi(v)
+		parsed, err := strconv.Atoi(v)
 		if err != nil {
 			utils.SendInternalError(c, "Invalid user ID format")
 			return
 		}
+		userID = uint(parsed)
 	default:
 		utils.SendInternalError(c, "Invalid user ID type")
 		return

@@ -58,7 +58,8 @@ type AIRecommendation struct {
 
 // UserPreferences stores user UI preferences
 type UserPreferences struct {
-	UserID               int       `gorm:"primaryKey" json:"user_id"`
+	UserID               uint      `gorm:"primaryKey" json:"user_id"`
+	User                 User      `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
 	BeginnerMode         bool      `gorm:"default:false" json:"beginner_mode"`
 	ShowTooltips         bool      `gorm:"default:true" json:"show_tooltips"`
 	TooltipDelay         int       `gorm:"default:500" json:"tooltip_delay"`
@@ -104,13 +105,13 @@ func SearchGlossaryTerms(db *database.DB, search string) ([]GlossaryTerm, error)
 }
 
 // GetUserPreferences fetches or creates user preferences
-func GetUserPreferences(db *database.DB, userID int) (*UserPreferences, error) {
+func GetUserPreferences(db *database.DB, userID uint) (*UserPreferences, error) {
 	var prefs UserPreferences
 	err := db.FirstOrCreate(&prefs, UserPreferences{UserID: userID}).Error
 	return &prefs, err
 }
 
 // UpdateUserPreferences updates user preferences
-func UpdateUserPreferences(db *database.DB, userID int, updates map[string]interface{}) error {
+func UpdateUserPreferences(db *database.DB, userID uint, updates map[string]interface{}) error {
 	return db.Model(&UserPreferences{}).Where("user_id = ?", userID).Updates(updates).Error
 }
