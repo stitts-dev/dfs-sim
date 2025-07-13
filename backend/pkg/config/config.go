@@ -45,6 +45,19 @@ type Config struct {
 	AIRateLimit       int    `mapstructure:"AI_RATE_LIMIT"`
 	AICacheExpiration int    `mapstructure:"AI_CACHE_EXPIRATION"`
 
+	// SMS Configuration
+	SMSProvider string `mapstructure:"SMS_PROVIDER"` // "supabase", "twilio", "mock"
+	
+	// Supabase Configuration
+	SupabaseURL        string `mapstructure:"SUPABASE_URL"`
+	SupabaseServiceKey string `mapstructure:"SUPABASE_SERVICE_KEY"`
+	SupabaseAnonKey    string `mapstructure:"SUPABASE_ANON_KEY"`
+	
+	// Twilio Configuration
+	TwilioAccountSID string `mapstructure:"TWILIO_ACCOUNT_SID"`
+	TwilioAuthToken  string `mapstructure:"TWILIO_AUTH_TOKEN"`
+	TwilioFromNumber string `mapstructure:"TWILIO_FROM_NUMBER"`
+
 	// Startup Configuration
 	SkipInitialGolfSync         bool          `mapstructure:"SKIP_INITIAL_GOLF_SYNC"`
 	SkipInitialDataFetch        bool          `mapstructure:"SKIP_INITIAL_DATA_FETCH"`
@@ -85,6 +98,15 @@ func LoadConfig() (*Config, error) {
 	viper.SetDefault("ANTHROPIC_API_KEY", "")
 	viper.SetDefault("AI_RATE_LIMIT", 5)          // requests per minute
 	viper.SetDefault("AI_CACHE_EXPIRATION", 3600) // 1 hour in seconds
+
+	// SMS defaults
+	viper.SetDefault("SMS_PROVIDER", "mock") // Default to mock for development
+	viper.SetDefault("SUPABASE_URL", "")
+	viper.SetDefault("SUPABASE_SERVICE_KEY", "")
+	viper.SetDefault("SUPABASE_ANON_KEY", "")
+	viper.SetDefault("TWILIO_ACCOUNT_SID", "")
+	viper.SetDefault("TWILIO_AUTH_TOKEN", "")
+	viper.SetDefault("TWILIO_FROM_NUMBER", "")
 
 	// Startup optimization defaults - maintain backward compatibility
 	viper.SetDefault("SKIP_INITIAL_GOLF_SYNC", false)         // Keep current behavior by default

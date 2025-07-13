@@ -53,15 +53,54 @@ type AuthResponse struct {
 }
 
 func NewAuthHandler(db *database.DB, cache *services.CacheService, cfg *config.Config) *AuthHandler {
-	// Initialize SMS service - For now we'll use a mock service
-	// In production, this would be Twilio, AWS SNS, or Supabase
-	smsService := services.NewMockSMSService()
+	// Initialize SMS service based on configuration
+	smsService := createSMSService(cfg)
 	
 	return &AuthHandler{
 		db:         db,
 		cache:      cache,
 		cfg:        cfg,
 		smsService: smsService,
+	}
+}
+
+// createSMSService creates the appropriate SMS service based on configuration
+func createSMSService(cfg *config.Config) services.SMSService {
+	// Create rate limiter: max 3 SMS per hour per phone number
+	rateLimiter := services.NewSMSRateLimiter(3, time.Hour)
+	
+	switch cfg.SMSProvider {
+	case "twilio":
+		if cfg.TwilioAccountSID != "" && cfg.TwilioAuthToken != "" && cfg.TwilioFromNumber != "" {
+			return services.NewTwilioSMSService(
+				cfg.TwilioAccountSID,
+				cfg.TwilioAuthToken,
+				cfg.TwilioFromNumber,
+				rateLimiter,
+			)
+		}
+		// Fall back to mock if Twilio credentials are missing
+		fmt.Printf("⚠️ Twilio credentials missing, falling back to mock SMS service\n")
+		return services.NewMockSMSService()
+		
+	case "supabase":
+		if cfg.SupabaseURL != "" && cfg.SupabaseServiceKey != "" {
+			return services.NewSupabaseSMSService(
+				cfg.SupabaseServiceKey,
+				cfg.SupabaseURL,
+				rateLimiter,
+			)
+		}
+		// Fall back to mock if Supabase credentials are missing
+		fmt.Printf("⚠️ Supabase credentials missing, falling back to mock SMS service\n")
+		return services.NewMockSMSService()
+		
+	case "mock":
+		return services.NewMockSMSService()
+		
+	default:
+		fmt.Printf("⚠️ Unknown SMS provider '%s', using mock SMS service\n", cfg.SMSProvider)
+		return services.NewMockSMSService()
 	}
 }
 

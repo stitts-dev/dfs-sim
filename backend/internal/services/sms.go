@@ -29,32 +29,8 @@ func (s *MockSMSService) SendMessage(phoneNumber, message string) error {
 	return nil
 }
 
-// TwilioSMSService for production use with Twilio
-type TwilioSMSService struct {
-	accountSID string
-	authToken  string
-	fromNumber string
-}
-
-func NewTwilioSMSService(accountSID, authToken, fromNumber string) *TwilioSMSService {
-	return &TwilioSMSService{
-		accountSID: accountSID,
-		authToken:  authToken,
-		fromNumber: fromNumber,
-	}
-}
-
-func (s *TwilioSMSService) SendOTP(phoneNumber, code string) error {
-	message := fmt.Sprintf("Your DFS Optimizer verification code is: %s\n\nDon't share this code with anyone. Code expires in 10 minutes.", code)
-	return s.SendMessage(phoneNumber, message)
-}
-
-func (s *TwilioSMSService) SendMessage(phoneNumber, message string) error {
-	// TODO: Implement Twilio API call
-	// For now, just log it
-	log.Printf("📨 TWILIO SMS: Send to %s: %s", phoneNumber, message)
-	return nil
-}
+// TwilioSMSService is now implemented in twilio_sms.go
+// This removes the stub implementation
 
 // TelnyxSMSService for production use with Telnyx (low-cost alternative)
 type TelnyxSMSService struct {
@@ -81,27 +57,5 @@ func (s *TelnyxSMSService) SendMessage(phoneNumber, message string) error {
 	return nil
 }
 
-// SupabaseSMSService for use with Supabase Auth (recommended for our stack)
-type SupabaseSMSService struct {
-	apiKey     string
-	projectURL string
-}
-
-func NewSupabaseSMSService(apiKey, projectURL string) *SupabaseSMSService {
-	return &SupabaseSMSService{
-		apiKey:     apiKey,
-		projectURL: projectURL,
-	}
-}
-
-func (s *SupabaseSMSService) SendOTP(phoneNumber, code string) error {
-	message := fmt.Sprintf("Your DFS Optimizer verification code is: %s\n\nDon't share this code with anyone. Code expires in 10 minutes.", code)
-	return s.SendMessage(phoneNumber, message)
-}
-
-func (s *SupabaseSMSService) SendMessage(phoneNumber, message string) error {
-	// TODO: Implement Supabase SMS API call
-	// For now, just log it
-	log.Printf("📨 SUPABASE SMS: Send to %s: %s", phoneNumber, message)
-	return nil
-}
+// SupabaseSMSService is now implemented in supabase_sms.go
+// This removes the stub implementation
