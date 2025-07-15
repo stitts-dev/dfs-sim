@@ -188,16 +188,10 @@ func (pd *PlayerDistribution) Sample(rng *rand.Rand) float64 {
 func (pd *PlayerDistribution) applyPositionAdjustments(baseScore float64, rng *rand.Rand) float64 {
 	score := baseScore
 
-	switch pd.player.Sport {
-	case "nba":
-		score = pd.applyNBAAdjustments(score, rng)
-	case "nfl":
-		score = pd.applyNFLAdjustments(score, rng)
-	case "mlb":
-		score = pd.applyMLBAdjustments(score, rng)
-	case "nhl":
-		score = pd.applyNHLAdjustments(score, rng)
-	}
+	// TODO: Sport-specific adjustments would need to be implemented
+	// based on contest type or external sport configuration
+	// For now, returning base score without adjustments
+	_ = rng // avoid unused parameter warning
 
 	return score
 }

@@ -389,7 +389,7 @@ func (ac *AnalyticsCache) InvalidatePlayer(ctx context.Context, playerID uuid.UU
 
 // GetCacheStats returns cache statistics
 func (ac *AnalyticsCache) GetCacheStats(ctx context.Context) (*CacheStats, error) {
-	info, err := ac.client.Info(ctx, "stats").Result()
+	_, err := ac.client.Info(ctx, "stats").Result()
 	if err != nil {
 		return nil, err
 	}

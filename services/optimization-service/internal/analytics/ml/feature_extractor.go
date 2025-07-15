@@ -2,17 +2,13 @@ package ml
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/logger"
-	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
 // FeatureExtractor handles feature extraction from user history and lineups
@@ -416,7 +412,6 @@ func (fe *FeatureExtractor) extractRiskFeatures(history []UserLineupHistory, fea
 	}
 
 	rois := make([]float64, len(history))
-	sharpeRatios := make([]float64, 0)
 	
 	for i, lineup := range history {
 		if lineup.EntryFee > 0 {

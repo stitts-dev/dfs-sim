@@ -148,7 +148,7 @@ func (mcs *MonteCarloSimulator) RunSimulation(
 		SimulationMeta: map[string]interface{}{
 			"workers":            mcs.workers,
 			"correlation_matrix": len(mcs.correlationMatrix) > 0,
-			"contest_type":       mcs.contest.Type,
+			"contest_type":       mcs.contest.ContestType,
 		},
 	}
 

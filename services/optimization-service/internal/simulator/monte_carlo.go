@@ -1,6 +1,7 @@
 package simulator
 
 import (
+	"hash/crc32"
 	"math"
 	"math/rand"
 	"runtime"
@@ -8,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stitts-dev/dfs-sim/shared/types"
 	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/optimizer"
 )
@@ -25,7 +27,7 @@ type SimulationConfig struct {
 // SimulationRun represents a single simulation run
 type SimulationRun struct {
 	LineupScore  float64
-	PlayerScores map[uint]float64
+	PlayerScores map[uuid.UUID]float64
 	Rank         int
 	Percentile   float64
 	Payout       float64
@@ -151,8 +153,8 @@ func (s *Simulator) simulationWorker(lineups []types.GeneratedLineup, simChan <-
 	}
 }
 
-func (s *Simulator) generatePlayerOutcomes(players []types.LineupPlayer, rng *rand.Rand) map[uint]float64 {
-	outcomes := make(map[uint]float64)
+func (s *Simulator) generatePlayerOutcomes(players []types.LineupPlayer, rng *rand.Rand) map[uuid.UUID]float64 {
+	outcomes := make(map[uuid.UUID]float64)
 
 	if s.config.UseCorrelations {
 		// Generate correlated outcomes
@@ -167,9 +169,9 @@ func (s *Simulator) generatePlayerOutcomes(players []types.LineupPlayer, rng *ra
 	return outcomes
 }
 
-func (s *Simulator) generateCorrelatedOutcomes(players []types.LineupPlayer, rng *rand.Rand) map[uint]float64 {
+func (s *Simulator) generateCorrelatedOutcomes(players []types.LineupPlayer, rng *rand.Rand) map[uuid.UUID]float64 {
 	n := len(players)
-	outcomes := make(map[uint]float64)
+	outcomes := make(map[uuid.UUID]float64)
 
 	// Generate base scores
 	baseScores := make([]float64, n)
@@ -185,7 +187,11 @@ func (s *Simulator) generateCorrelatedOutcomes(players []types.LineupPlayer, rng
 		// Apply correlation adjustments
 		for j, player2 := range players {
 			if i != j {
-				correlation := s.correlations.GetCorrelation(player1.ID, player2.ID)
+				// Convert UUID to uint for correlation lookup
+				// TODO: This is a temporary solution - ideally correlation matrix should use UUIDs
+				player1Hash := hashUUID(player1.ID)
+				player2Hash := hashUUID(player2.ID)
+				correlation := s.correlations.GetCorrelation(player1Hash, player2Hash)
 				if correlation != 0 {
 					// Adjust score based on correlation and other player's performance
 					deviation := (baseScores[j] - player2.ProjectedPoints) / player2.ProjectedPoints
@@ -253,6 +259,12 @@ func (s *Simulator) calculateRanks(scores []float64) []int {
 	}
 
 	return ranks
+}
+
+// hashUUID converts a UUID to a uint32 for compatibility with correlation matrix
+// TODO: This is a temporary solution - ideally correlation matrix should use UUIDs
+func hashUUID(id uuid.UUID) uint {
+	return uint(crc32.ChecksumIEEE(id[:]))
 }
 
 func (s *Simulator) aggregateResults(lineup types.GeneratedLineup, resultsChan <-chan SimulationRun) *SimulationResult {

@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"sort"
 
+	"github.com/google/uuid"
 	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
@@ -42,12 +43,12 @@ func (cs *ContestSimulator) SimulateFullContest(userLineups []types.GeneratedLin
 	allLineups := append(userLineups, fieldLineups...)
 
 	// Generate player outcomes
-	playerDists := make(map[uint]*PlayerDistribution)
+	playerDists := make(map[uuid.UUID]*PlayerDistribution)
 	for _, player := range players {
 		playerDists[player.ID] = NewPlayerDistribution(player)
 	}
 
-	playerOutcomes := make(map[uint]float64)
+	playerOutcomes := make(map[uuid.UUID]float64)
 	for _, player := range players {
 		playerOutcomes[player.ID] = playerDists[player.ID].Sample(rng)
 	}
@@ -104,7 +105,7 @@ func (cs *ContestSimulator) generateFieldLineups(players []types.Player, count i
 	return fieldLineups
 }
 
-func (cs *ContestSimulator) createWeightedPool(players []types.Player, ownership map[uint]float64) []weightedPlayer {
+func (cs *ContestSimulator) createWeightedPool(players []types.Player, ownership map[uuid.UUID]float64) []weightedPlayer {
 	pool := make([]weightedPlayer, 0, len(players))
 
 	for _, player := range players {
@@ -128,7 +129,7 @@ func (cs *ContestSimulator) generateSingleLineup(pool []weightedPlayer, allPlaye
 
 	// Try to fill each position
 	positionsFilled := make(map[string]int)
-	usedPlayers := make(map[uint]bool)
+	usedPlayers := make(map[uuid.UUID]bool)
 
 	// Multiple attempts to create valid lineup
 	for attempt := 0; attempt < 100; attempt++ {
@@ -136,7 +137,7 @@ func (cs *ContestSimulator) generateSingleLineup(pool []weightedPlayer, allPlaye
 		lineup.TotalSalary = 0
 		lineup.ProjectedPoints = 0
 		positionsFilled = make(map[string]int)
-		usedPlayers = make(map[uint]bool)
+		usedPlayers = make(map[uuid.UUID]bool)
 
 		// Fill positions in order
 		for position, required := range requirements {
@@ -151,11 +152,11 @@ func (cs *ContestSimulator) generateSingleLineup(pool []weightedPlayer, allPlaye
 					Name:            player.Name,
 					Team:            player.Team,
 					Position:        player.Position,
-					Salary:          player.Salary,
+					Salary:          player.SalaryDK,
 					ProjectedPoints: player.ProjectedPoints,
 				}
 				lineup.Players = append(lineup.Players, lineupPlayer)
-				lineup.TotalSalary += player.Salary
+				lineup.TotalSalary += player.SalaryDK
 				lineup.ProjectedPoints += player.ProjectedPoints
 				usedPlayers[player.ID] = true
 				positionsFilled[position]++
@@ -171,14 +172,14 @@ func (cs *ContestSimulator) generateSingleLineup(pool []weightedPlayer, allPlaye
 	return nil // Failed to generate valid lineup
 }
 
-func (cs *ContestSimulator) selectPlayer(pool []weightedPlayer, position string, remainingSalary int, used map[uint]bool, rng *rand.Rand) *types.Player {
+func (cs *ContestSimulator) selectPlayer(pool []weightedPlayer, position string, remainingSalary int, used map[uuid.UUID]bool, rng *rand.Rand) *types.Player {
 	// Filter eligible players
 	eligible := make([]weightedPlayer, 0)
 	totalWeight := 0.0
 
 	for _, wp := range pool {
 		if wp.player.Position == position &&
-			wp.player.Salary <= remainingSalary &&
+			wp.player.SalaryDK <= remainingSalary &&
 			!used[wp.player.ID] {
 			eligible = append(eligible, wp)
 			totalWeight += wp.weight
@@ -267,8 +268,8 @@ func NewOwnershipModel(contestType string) *OwnershipModel {
 	}
 }
 
-func (om *OwnershipModel) GenerateOwnership(players []types.Player, rng *rand.Rand) map[uint]float64 {
-	ownership := make(map[uint]float64)
+func (om *OwnershipModel) GenerateOwnership(players []types.Player, rng *rand.Rand) map[uuid.UUID]float64 {
+	ownership := make(map[uuid.UUID]float64)
 
 	// Group by position
 	byPosition := make(map[string][]types.Player)
@@ -280,8 +281,8 @@ func (om *OwnershipModel) GenerateOwnership(players []types.Player, rng *rand.Ra
 	for _, posPlayers := range byPosition {
 		// Sort by value (projected points per dollar)
 		sort.Slice(posPlayers, func(i, j int) bool {
-			valueI := posPlayers[i].ProjectedPoints / float64(posPlayers[i].Salary)
-			valueJ := posPlayers[j].ProjectedPoints / float64(posPlayers[j].Salary)
+			valueI := posPlayers[i].ProjectedPoints / float64(posPlayers[i].SalaryDK)
+			valueJ := posPlayers[j].ProjectedPoints / float64(posPlayers[j].SalaryDK)
 			return valueI > valueJ
 		})
 
@@ -294,8 +295,8 @@ func (om *OwnershipModel) GenerateOwnership(players []types.Player, rng *rand.Ra
 			ownership[player.ID] = math.Max(0.01, math.Min(0.50, baseOwnership+noise))
 
 			// Boost if already has ownership data
-			if player.Ownership > 0 {
-				ownership[player.ID] = player.Ownership / 100.0
+			if player.OwnershipDK > 0 {
+				ownership[player.ID] = player.OwnershipDK / 100.0
 			}
 		}
 	}
@@ -355,6 +356,6 @@ type UserResult struct {
 type ContestResult struct {
 	Contest        *types.Contest
 	LineupScores   []LineupScore
-	PlayerOutcomes map[uint]float64
+	PlayerOutcomes map[uuid.UUID]float64
 	UserResults    []UserResult
 }
