@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,10 @@ type OptimizeConfig struct {
 	MinExposure         map[uint]float64 `json:"min_exposure"`
 	MaxExposure         map[uint]float64 `json:"max_exposure"`
 	Contest             *types.Contest  `json:"-"`
+	
+	// Portfolio-level constraints (optional)
+	UsePortfolioConstraints bool                 `json:"use_portfolio_constraints"`
+	PortfolioConfig         *PortfolioConstraint `json:"portfolio_config,omitempty"`
 }
 
 type StackingRule struct {
@@ -31,6 +36,24 @@ type StackingRule struct {
 	MinPlayers int      `json:"min_players"`
 	MaxPlayers int      `json:"max_players"`
 	Teams      []string `json:"teams,omitempty"`
+}
+
+// PortfolioConstraint defines portfolio-level optimization constraints
+type PortfolioConstraint struct {
+	RiskAversion        float64                   `json:"risk_aversion"`
+	MaxPositionSize     float64                   `json:"max_position_size"`
+	MinDiversification  float64                   `json:"min_diversification"`
+	UseRiskParity       bool                      `json:"use_risk_parity"`
+	SportConstraints    map[string]PortfolioLimit `json:"sport_constraints"`
+	TeamConstraints     map[string]PortfolioLimit `json:"team_constraints"`
+	PlayerConstraints   map[string]PortfolioLimit `json:"player_constraints"`
+	RegularizationParam float64                   `json:"regularization_param"`
+}
+
+// PortfolioLimit defines min/max allocation limits
+type PortfolioLimit struct {
+	Min float64 `json:"min"`
+	Max float64 `json:"max"`
 }
 
 type OptimizerResult struct {
@@ -56,7 +79,11 @@ func OptimizeLineups(players []types.Player, config OptimizeConfig) (*OptimizerR
 	result := &OptimizerResult{}
 
 	// Initialize logger with optimization context
-	logger := logger.WithOptimizationContext(optimizationID, config.Contest.Sport, config.Contest.Platform)
+	sportID := "unknown"
+	if config.Contest != nil {
+		sportID = config.Contest.SportID.String()
+	}
+	logger := logger.WithOptimizationContext(optimizationID, sportID, config.Contest.Platform)
 	logger.WithFields(logrus.Fields{
 		"total_players": len(players),
 		"salary_cap":    config.SalaryCap,
@@ -91,8 +118,15 @@ func OptimizeLineups(players []types.Player, config OptimizeConfig) (*OptimizerR
 		return validLineups[i].projectedPoints > validLineups[j].projectedPoints
 	})
 
-	// Apply diversity constraints and exposure limits
-	finalLineups := applyDiversityConstraints(validLineups, config)
+	// Apply portfolio-level optimization if enabled
+	var finalLineups []lineupCandidate
+	if config.UsePortfolioConstraints && config.PortfolioConfig != nil {
+		logger.Info("Applying portfolio-level optimization")
+		finalLineups = applyPortfolioOptimization(validLineups, config, logger)
+	} else {
+		// Apply diversity constraints and exposure limits (default behavior)
+		finalLineups = applyDiversityConstraints(validLineups, config)
+	}
 
 	// Convert to model lineups
 	result.Lineups = make([]types.GeneratedLineup, 0, len(finalLineups))
@@ -100,12 +134,18 @@ func OptimizeLineups(players []types.Player, config OptimizeConfig) (*OptimizerR
 		// Convert Player slice to LineupPlayer slice
 		lineupPlayers := make([]types.LineupPlayer, len(candidate.players))
 		for j, player := range candidate.players {
+			// Use appropriate salary based on platform
+			salary := player.SalaryDK
+			if strings.ToLower(config.Contest.Platform) == "fanduel" && player.SalaryFD > 0 {
+				salary = player.SalaryFD
+			}
+			
 			lineupPlayers[j] = types.LineupPlayer{
 				ID:              player.ID,
 				Name:            player.Name,
 				Team:            player.Team,
 				Position:        player.Position,
-				Salary:          player.Salary,
+				Salary:          salary,
 				ProjectedPoints: player.ProjectedPoints,
 			}
 		}
@@ -138,7 +178,8 @@ func filterPlayers(players []types.Player, config OptimizeConfig, logger *logrus
 	injuredCount := 0
 
 	for _, player := range players {
-		if excludeMap[player.ID] {
+		playerID := uint(player.ID.ID())
+		if excludeMap[playerID] {
 			excludedCount++
 		} else if player.IsInjured {
 			injuredCount++
@@ -166,8 +207,8 @@ func organizeByPosition(players []types.Player, logger *logrus.Entry) map[string
 	// Sort each position by value (projected points per dollar)
 	for position := range byPosition {
 		sort.Slice(byPosition[position], func(i, j int) bool {
-			valueI := byPosition[position][i].ProjectedPoints / float64(byPosition[position][i].Salary)
-			valueJ := byPosition[position][j].ProjectedPoints / float64(byPosition[position][j].Salary)
+			valueI := byPosition[position][i].ProjectedPoints / float64(byPosition[position][i].SalaryDK)
+			valueJ := byPosition[position][j].ProjectedPoints / float64(byPosition[position][j].SalaryDK)
 			return valueI > valueJ
 		})
 	}
@@ -181,7 +222,7 @@ func organizeByPosition(players []types.Player, logger *logrus.Entry) map[string
 		topPlayerNames := make([]string, 0, 3)
 		for i, p := range players {
 			if i < 3 {
-				topPlayerNames = append(topPlayerNames, fmt.Sprintf("%s($%d)", p.Name, p.Salary))
+				topPlayerNames = append(topPlayerNames, fmt.Sprintf("%s($%d)", p.Name, p.SalaryDK))
 			}
 		}
 		topPlayers[pos] = topPlayerNames
@@ -195,7 +236,6 @@ func organizeByPosition(players []types.Player, logger *logrus.Entry) map[string
 }
 
 func generateValidLineups(playersByPosition map[string][]types.Player, config OptimizeConfig, logger *logrus.Entry) []lineupCandidate {
-	var validLineups []lineupCandidate
 
 	// Early validation
 	if config.Contest == nil {
@@ -203,15 +243,226 @@ func generateValidLineups(playersByPosition map[string][]types.Player, config Op
 		return []lineupCandidate{}
 	}
 
-	// Get position slots for this sport/platform
-	slots := GetPositionSlots(config.Contest.Sport, config.Contest.Platform)
+	// Get position slots for this sport/platform  
+	sportName := getSportNameFromID(config.Contest.SportID)
+	slots := GetPositionSlots(sportName, config.Contest.Platform)
 	if len(slots) == 0 {
 		logger.WithFields(logrus.Fields{
-			"sport":    config.Contest.Sport,
+			"sport_id": config.Contest.SportID,
+			"sport":    sportName,
 			"platform": config.Contest.Platform,
 		}).Error("No position slots found for contest")
 		return []lineupCandidate{}
 	}
+
+	// Check if we should use the new DP optimizer based on config
+	if shouldUseDP(config) {
+		return generateLineupsWithDP(playersByPosition, config, logger)
+	}
+
+	// Fallback to original backtracking for backward compatibility
+	return generateLineupsWithBacktracking(playersByPosition, config, logger, slots)
+}
+
+// shouldUseDP determines whether to use the new DP optimizer
+func shouldUseDP(config OptimizeConfig) bool {
+	// Use DP for larger optimizations or when explicitly enabled
+	if config.NumLineups > 20 {
+		return true
+	}
+	
+	// Use DP for complex constraints
+	if len(config.StackingRules) > 2 || len(config.LockedPlayers) > 3 {
+		return true
+	}
+	
+	return false
+}
+
+// generateLineupsWithDP uses the new dynamic programming optimizer with enhanced analytics
+func generateLineupsWithDP(playersByPosition map[string][]types.Player, config OptimizeConfig, logger *logrus.Entry) []lineupCandidate {
+	logger.Info("Using enhanced DP optimizer with analytics and multi-objective framework")
+	
+	// Convert playersByPosition back to a flat list
+	allPlayers := make([]types.Player, 0)
+	for _, players := range playersByPosition {
+		allPlayers = append(allPlayers, players...)
+	}
+	
+	// Initialize DP optimizer
+	dpOptimizer := NewDPOptimizer()
+	
+	// Create enhanced configuration with strategy support
+	configV2 := OptimizeConfigV2{
+		// Preserve original config fields
+		SalaryCap:           config.SalaryCap,
+		NumLineups:          config.NumLineups,
+		MinDifferentPlayers: config.MinDifferentPlayers,
+		UseCorrelations:     config.UseCorrelations,
+		CorrelationWeight:   config.CorrelationWeight,
+		StackingRules:       config.StackingRules,
+		LockedPlayers:       config.LockedPlayers,
+		ExcludedPlayers:     config.ExcludedPlayers,
+		MinExposure:         config.MinExposure,
+		MaxExposure:         config.MaxExposure,
+		Contest:             config.Contest,
+		
+		// Enhanced strategy options
+		Strategy:            determineOptimizationStrategy(config),
+		PlayerAnalytics:     true, // Enable analytics by default for DP
+		PerformanceMode:     "balanced",
+		
+		// Exposure management configuration
+		ExposureManagement: ExposureConfig{
+			MaxPlayerExposure:   30.0, // Default 30% max exposure
+			MaxTeamExposure:     40.0, // Default 40% max team exposure
+			MaxGameExposure:     35.0, // Default 35% max game exposure
+			MinUniquePlayers:    config.MinDifferentPlayers,
+		},
+		
+		// Advanced constraints
+		MaxCorrelation:    0.8,
+		MinDiversity:      config.MinDifferentPlayers,
+		OwnershipStrategy: "balanced",
+	}
+	
+	// Use enhanced V2 optimizer for multiple lineups
+	generatedLineups, err := dpOptimizer.OptimizeWithDPV2(allPlayers, configV2)
+	if err != nil {
+		logger.WithError(err).Error("Enhanced DP optimization failed")
+		// Fallback to simpler single-lineup DP optimization
+		return generateLineupsWithSimpleDP(allPlayers, config, logger)
+	}
+	
+	// Convert GeneratedLineup back to lineupCandidate for compatibility
+	validLineups := make([]lineupCandidate, 0, len(generatedLineups))
+	for _, genLineup := range generatedLineups {
+		// Convert LineupPlayer back to Player
+		players := make([]types.Player, 0, len(genLineup.Players))
+		
+		for _, lineupPlayer := range genLineup.Players {
+			// Find the original player data
+			for _, player := range allPlayers {
+				if player.ID == lineupPlayer.ID {
+					players = append(players, player)
+					break
+				}
+			}
+		}
+		
+		if len(players) == len(genLineup.Players) {
+			candidate := lineupCandidate{
+				players:         players,
+				totalSalary:     genLineup.TotalSalary,
+				projectedPoints: genLineup.ProjectedPoints,
+				positions:       make(map[string][]types.Player),
+				playerPositions: make(map[uint]string),
+			}
+			
+			// Organize by position for compatibility
+			for _, player := range players {
+				candidate.positions[player.Position] = append(candidate.positions[player.Position], player)
+				candidate.playerPositions[uint(player.ID.ID())] = player.Position
+			}
+			
+			validLineups = append(validLineups, candidate)
+		}
+	}
+	
+	logger.WithFields(logrus.Fields{
+		"lineups_generated": len(validLineups),
+		"strategy_used":     configV2.Strategy,
+		"analytics_enabled": configV2.PlayerAnalytics,
+	}).Info("Enhanced DP optimization completed successfully")
+	
+	return validLineups
+}
+
+// OptimizationObjective and constants are defined in objectives.go
+
+// determineOptimizationStrategy determines the best strategy based on config
+func determineOptimizationStrategy(config OptimizeConfig) OptimizationObjective {
+	// Analyze config to determine best strategy
+	if config.UseCorrelations && len(config.StackingRules) > 0 {
+		return Correlation // Focus on stacking when correlation rules are present
+	}
+	
+	// Check contest type for strategy hints
+	if config.Contest != nil {
+		contestType := strings.ToLower(config.Contest.ContestType)
+		if strings.Contains(contestType, "gpp") || strings.Contains(contestType, "tournament") {
+			return MaxCeiling // Tournament strategy for GPP contests
+		}
+		if strings.Contains(contestType, "cash") || strings.Contains(contestType, "50/50") {
+			return MaxFloor // Cash game strategy for safer contests
+		}
+	}
+	
+	// Default to balanced strategy
+	return Balanced
+}
+
+// generateLineupsWithSimpleDP provides fallback single-lineup DP optimization
+func generateLineupsWithSimpleDP(allPlayers []types.Player, config OptimizeConfig, logger *logrus.Entry) []lineupCandidate {
+	logger.Info("Using simple DP fallback optimization")
+	
+	dpOptimizer := NewDPOptimizer()
+	validLineups := make([]lineupCandidate, 0, config.NumLineups)
+	
+	// Create exposure manager for diversity tracking
+	exposureConfig := ExposureConfig{
+		MaxPlayerExposure:   30.0,
+		MaxTeamExposure:     40.0,
+		MinUniquePlayers:    config.MinDifferentPlayers,
+	}
+	exposureManager := NewExposureManager(exposureConfig)
+	
+	for i := 0; i < config.NumLineups; i++ {
+		platform := strings.ToLower(config.Contest.Platform)
+		result, err := dpOptimizer.OptimizeWithDP(allPlayers, config, platform)
+		
+		if err != nil {
+			logger.WithError(err).Warnf("Simple DP optimization failed for lineup %d", i+1)
+			continue
+		}
+		
+		// Convert DP result to lineupCandidate
+		lineup := convertDPResultToLineup(result, allPlayers, config, logger)
+		if lineup != nil && isValidLineup(lineup, config) {
+			// Check exposure constraints
+			canAdd := true
+			for _, player := range lineup.players {
+				if !exposureManager.CanAddPlayer(player.ID, player.Team, i) {
+					canAdd = false
+					break
+				}
+			}
+			
+			if canAdd {
+				validLineups = append(validLineups, *lineup)
+				
+				// Track exposure
+				for _, player := range lineup.players {
+					exposureManager.AddPlayerToLineup(player.ID, player.Team, i)
+				}
+				exposureManager.CompleteLineup()
+			}
+		}
+		
+		// Remove some optimal players for diversity
+		if result != nil && len(result.OptimalPlayers) > 0 {
+			allPlayers = filterOutTopPlayers(allPlayers, result.OptimalPlayers, 2) // Remove top 2 players
+		}
+	}
+	
+	return validLineups
+}
+
+// generateLineupsWithBacktracking uses the original backtracking algorithm
+func generateLineupsWithBacktracking(playersByPosition map[string][]types.Player, config OptimizeConfig, logger *logrus.Entry, slots []PositionSlot) []lineupCandidate {
+	logger.Debug("Using backtracking optimizer for lineup generation")
+	
+	var validLineups []lineupCandidate
 
 	// Log position slots for debugging
 	slotInfo := make([]map[string]interface{}, len(slots))
@@ -269,7 +520,8 @@ func generateValidLineups(playersByPosition map[string][]types.Player, config Op
 			// Check if this slot is already filled
 			slotFilled := false
 			for _, player := range current.players {
-				if pos, ok := current.playerPositions[player.ID]; ok && pos == slots[slotIndex].SlotName {
+				playerID := uint(player.ID.ID())
+				if pos, ok := current.playerPositions[playerID]; ok && pos == slots[slotIndex].SlotName {
 					slotFilled = true
 					break
 				}
@@ -300,7 +552,8 @@ func generateValidLineups(playersByPosition map[string][]types.Player, config Op
 				for _, lockedID := range config.LockedPlayers {
 					found := false
 					for _, player := range current.players {
-						if player.ID == lockedID {
+						playerID := uint(player.ID.ID())
+						if playerID == lockedID {
 							found = true
 							break
 						}
@@ -374,13 +627,15 @@ func generateValidLineups(playersByPosition map[string][]types.Player, config Op
 			// Try each player that can fill this slot
 			playersTried := 0
 			for _, player := range players {
+				playerID := uint(player.ID.ID())
 				// Skip if player already used
-				if usedPlayers[player.ID] {
+				if usedPlayers[playerID] {
 					continue
 				}
 
 				// Check salary cap
-				if current.totalSalary+player.Salary > config.SalaryCap {
+				playerSalary := getSalaryForPlatform(player, config.Contest.Platform)
+				if current.totalSalary+playerSalary > config.SalaryCap {
 					continue
 				}
 
@@ -388,20 +643,20 @@ func generateValidLineups(playersByPosition map[string][]types.Player, config Op
 
 				// Add player to lineup
 				current.players = append(current.players, player)
-				current.totalSalary += player.Salary
+				current.totalSalary += playerSalary
 				current.projectedPoints += player.ProjectedPoints
-				current.playerPositions[player.ID] = slot.SlotName
-				usedPlayers[player.ID] = true
+				current.playerPositions[playerID] = slot.SlotName
+				usedPlayers[playerID] = true
 
 				// Recurse to fill next slot
 				backtrack(current, slotIndex+1, usedPlayers)
 
 				// Backtrack
 				current.players = current.players[:len(current.players)-1]
-				current.totalSalary -= player.Salary
+				current.totalSalary -= playerSalary
 				current.projectedPoints -= player.ProjectedPoints
-				delete(current.playerPositions, player.ID)
-				usedPlayers[player.ID] = false
+				delete(current.playerPositions, playerID)
+				usedPlayers[playerID] = false
 
 				// Limit how many players we try per position to avoid exponential explosion
 				if playersTried >= 10 && len(validLineups) > 0 {
@@ -468,7 +723,8 @@ func generatePositionCombinations(current *lineupCandidate, players []types.Play
 		// Check if any player is already in lineup
 		valid := true
 		for _, player := range combo {
-			if hasPlayer(current.players, player.ID) {
+			playerIDKey := uint(player.ID.ID())
+			if hasPlayer(current.players, playerIDKey) {
 				valid = false
 				break
 			}
@@ -482,7 +738,7 @@ func generatePositionCombinations(current *lineupCandidate, players []types.Play
 		additionalSalary := 0
 		additionalPoints := 0.0
 		for _, player := range combo {
-			additionalSalary += player.Salary
+			additionalSalary += getSalaryForPlatform(player, config.Contest.Platform)
 			additionalPoints += player.ProjectedPoints
 		}
 
@@ -492,9 +748,10 @@ func generatePositionCombinations(current *lineupCandidate, players []types.Play
 
 		// Add players and recurse
 		for _, player := range combo {
+			playerIDKey := uint(player.ID.ID())
 			current.players = append(current.players, player)
 			current.positions[position] = append(current.positions[position], player)
-			current.playerPositions[player.ID] = position
+			current.playerPositions[playerIDKey] = position
 		}
 		current.totalSalary += additionalSalary
 		current.projectedPoints += additionalPoints
@@ -508,7 +765,7 @@ func generatePositionCombinations(current *lineupCandidate, players []types.Play
 
 		// Remove players (backtrack)
 		for _, player := range combo {
-			delete(current.playerPositions, player.ID)
+			delete(current.playerPositions, uint(player.ID.ID()))
 		}
 		current.players = current.players[:len(current.players)-len(combo)]
 		current.positions[position] = current.positions[position][:len(current.positions[position])-len(combo)]
@@ -531,11 +788,11 @@ func generateFlexCombinations(current *lineupCandidate, eligiblePlayers []types.
 		additionalPoints := 0.0
 
 		for _, player := range combo {
-			if hasPlayer(current.players, player.ID) {
+			if hasPlayer(current.players, uint(player.ID.ID())) {
 				valid = false
 				break
 			}
-			additionalSalary += player.Salary
+			additionalSalary += getSalaryForPlatform(player, config.Contest.Platform)
 			additionalPoints += player.ProjectedPoints
 		}
 
@@ -547,7 +804,7 @@ func generateFlexCombinations(current *lineupCandidate, eligiblePlayers []types.
 		flexPosition := positionOrder[posIndex] // UTIL, FLEX, G, F
 		for _, player := range combo {
 			current.players = append(current.players, player)
-			current.playerPositions[player.ID] = flexPosition
+			current.playerPositions[uint(player.ID.ID())] = flexPosition
 		}
 		current.totalSalary += additionalSalary
 		current.projectedPoints += additionalPoints
@@ -560,7 +817,7 @@ func generateFlexCombinations(current *lineupCandidate, eligiblePlayers []types.
 
 		// Remove players
 		for _, player := range combo {
-			delete(current.playerPositions, player.ID)
+			delete(current.playerPositions, uint(player.ID.ID()))
 		}
 		current.players = current.players[:len(current.players)-len(combo)]
 		current.totalSalary -= additionalSalary
@@ -590,8 +847,10 @@ func getFlexEligiblePlayers(playersByPosition map[string][]types.Player, flexTyp
 
 	// Sort by value
 	sort.Slice(eligible, func(i, j int) bool {
-		valueI := eligible[i].ProjectedPoints / float64(eligible[i].Salary)
-		valueJ := eligible[j].ProjectedPoints / float64(eligible[j].Salary)
+		salaryI := getSalaryForPlatform(eligible[i], "draftkings")
+		salaryJ := getSalaryForPlatform(eligible[j], "draftkings")
+		valueI := eligible[i].ProjectedPoints / float64(salaryI)
+		valueJ := eligible[j].ProjectedPoints / float64(salaryJ)
 		return valueI > valueJ
 	})
 
@@ -701,9 +960,10 @@ func applyDiversityConstraints(lineups []lineupCandidate, config OptimizeConfig)
 		// Check exposure limits
 		valid := true
 		for _, player := range lineup.players {
-			currentExposure := float64(playerExposure[player.ID]) / float64(len(finalLineups)+1)
+			playerIDKey := uint(player.ID.ID())
+			currentExposure := float64(playerExposure[playerIDKey]) / float64(len(finalLineups)+1)
 
-			if maxExp, exists := config.MaxExposure[player.ID]; exists && currentExposure > maxExp {
+			if maxExp, exists := config.MaxExposure[playerIDKey]; exists && currentExposure > maxExp {
 				valid = false
 				break
 			}
@@ -718,7 +978,8 @@ func applyDiversityConstraints(lineups []lineupCandidate, config OptimizeConfig)
 
 		// Update exposure counts
 		for _, player := range lineup.players {
-			playerExposure[player.ID]++
+			playerIDKey := uint(player.ID.ID())
+			playerExposure[playerIDKey]++
 		}
 	}
 
@@ -729,7 +990,8 @@ func applyDiversityConstraints(lineups []lineupCandidate, config OptimizeConfig)
 
 func hasPlayer(players []types.Player, playerID uint) bool {
 	for _, p := range players {
-		if p.ID == playerID {
+		pIDKey := uint(p.ID.ID())
+		if pIDKey == playerID {
 			return true
 		}
 	}
@@ -789,12 +1051,14 @@ func getGameKey(team1, team2 string) string {
 func countDifferentPlayers(lineup1, lineup2 lineupCandidate) int {
 	playerMap := make(map[uint]bool)
 	for _, p := range lineup1.players {
-		playerMap[p.ID] = true
+		playerIDKey := uint(p.ID.ID())
+		playerMap[playerIDKey] = true
 	}
 
 	different := 0
 	for _, p := range lineup2.players {
-		if !playerMap[p.ID] {
+		playerIDKey := uint(p.ID.ID())
+		if !playerMap[playerIDKey] {
 			different++
 		}
 	}
@@ -862,4 +1126,465 @@ func calculateCorrelationBonus(players []types.Player, weight float64) float64 {
 	}
 
 	return bonus
+}
+
+// convertDPResultToLineup converts DP optimization result to lineupCandidate
+func convertDPResultToLineup(result *DPResult, allPlayers []types.Player, config OptimizeConfig, logger *logrus.Entry) *lineupCandidate {
+	if result == nil || len(result.OptimalPlayers) == 0 {
+		return nil
+	}
+	
+	// Create player map for quick lookup
+	playerMap := make(map[uuid.UUID]types.Player)
+	for _, player := range allPlayers {
+		playerMap[player.ID] = player
+	}
+	
+	// Build lineup from optimal player IDs
+	lineup := &lineupCandidate{
+		players:         make([]types.Player, 0, len(result.OptimalPlayers)),
+		positions:       make(map[string][]types.Player),
+		playerPositions: make(map[uint]string),
+		totalSalary:     0,
+		projectedPoints: 0,
+	}
+	
+	for _, playerID := range result.OptimalPlayers {
+		// Convert uint back to UUID for lookup
+		var playerUUID uuid.UUID
+		for _, p := range allPlayers {
+			if uint(p.ID.ID()) == playerID {
+				playerUUID = p.ID
+				break
+			}
+		}
+		if player, exists := playerMap[playerUUID]; exists && playerUUID != uuid.Nil {
+			lineup.players = append(lineup.players, player)
+			lineup.totalSalary += player.SalaryDK // Use DK salary by default
+			lineup.projectedPoints += player.ProjectedPoints
+			
+			// Track by position
+			if lineup.positions[player.Position] == nil {
+				lineup.positions[player.Position] = make([]types.Player, 0)
+			}
+			lineup.positions[player.Position] = append(lineup.positions[player.Position], player)
+		} else {
+			logger.WithField("player_id", playerID).Warn("Optimal player not found in player map")
+		}
+	}
+	
+	return lineup
+}
+
+// filterOutPlayers removes specified players from the player list to ensure diversity
+func filterOutPlayers(players []types.Player, playerIDsToRemove []uuid.UUID) []types.Player {
+	if len(playerIDsToRemove) == 0 {
+		return players
+	}
+	
+	// Create set of IDs to remove
+	removeSet := make(map[uuid.UUID]bool)
+	for _, id := range playerIDsToRemove {
+		removeSet[id] = true
+	}
+	
+	// Filter out players
+	filtered := make([]types.Player, 0, len(players))
+	for _, player := range players {
+		if !removeSet[player.ID] {
+			filtered = append(filtered, player)
+		}
+	}
+	
+	return filtered
+}
+
+// applyPortfolioOptimization applies portfolio-level constraints and optimization
+func applyPortfolioOptimization(lineups []lineupCandidate, config OptimizeConfig, logger *logrus.Entry) []lineupCandidate {
+	if config.PortfolioConfig == nil || len(lineups) == 0 {
+		return lineups
+	}
+
+	portfolioConfig := config.PortfolioConfig
+	logger.WithFields(logrus.Fields{
+		"lineups_count":     len(lineups),
+		"risk_aversion":     portfolioConfig.RiskAversion,
+		"max_position_size": portfolioConfig.MaxPositionSize,
+		"use_risk_parity":   portfolioConfig.UseRiskParity,
+	}).Info("Starting portfolio optimization")
+
+	// Convert lineups to portfolio format
+	portfolioLineups := convertLineupsToPortfolioFormat(lineups)
+
+	// Apply portfolio constraints
+	constrainedLineups := applyPortfolioConstraints(portfolioLineups, portfolioConfig, logger)
+
+	// Calculate portfolio weights using Modern Portfolio Theory
+	weights := calculateOptimalPortfolioWeights(constrainedLineups, portfolioConfig, logger)
+
+	// Select lineups based on optimal weights
+	selectedLineups := selectLineupsFromWeights(constrainedLineups, weights, config.NumLineups, logger)
+
+	logger.WithFields(logrus.Fields{
+		"original_lineups": len(lineups),
+		"final_lineups":    len(selectedLineups),
+		"optimization":     "portfolio_complete",
+	}).Info("Portfolio optimization completed")
+
+	return selectedLineups
+}
+
+// convertLineupsToPortfolioFormat converts lineupCandidate to portfolio analysis format
+func convertLineupsToPortfolioFormat(lineups []lineupCandidate) []lineupCandidate {
+	// Add lineup metadata for portfolio analysis
+	for i := range lineups {
+		// Calculate lineup risk score based on player variance
+		riskScore := calculateLineupRisk(lineups[i])
+		
+		// Store risk score in projected points for portfolio optimization
+		// This is a simplified approach - in practice, you'd extend the struct
+		lineups[i].projectedPoints = lineups[i].projectedPoints * (1.0 - riskScore*0.1)
+	}
+	return lineups
+}
+
+// calculateLineupRisk calculates risk score for a lineup
+func calculateLineupRisk(lineup lineupCandidate) float64 {
+	if len(lineup.players) == 0 {
+		return 0.0
+	}
+
+	// Calculate risk based on:
+	// 1. Player concentration (same team)
+	// 2. Salary concentration (high-priced players)
+	// 3. Position concentration
+
+	teamCounts := make(map[string]int)
+	highSalaryCount := 0
+
+	for _, player := range lineup.players {
+		teamCounts[player.Team]++
+		
+		// Count high-salary players (top 25% salary range)
+		if player.SalaryDK > 8000 { // Simplified threshold using DK salary
+			highSalaryCount++
+		}
+	}
+
+	// Team concentration risk
+	teamRisk := 0.0
+	for _, count := range teamCounts {
+		concentration := float64(count) / float64(len(lineup.players))
+		if concentration > 0.4 { // More than 40% from one team
+			teamRisk += concentration - 0.4
+		}
+	}
+
+	// Salary concentration risk
+	salaryRisk := 0.0
+	if highSalaryCount > len(lineup.players)/2 {
+		salaryRisk = 0.2 // High salary concentration
+	}
+
+	// Combined risk score (0-1 scale)
+	return math.Min(1.0, teamRisk + salaryRisk)
+}
+
+// applyPortfolioConstraints applies portfolio-level constraints to lineups
+func applyPortfolioConstraints(lineups []lineupCandidate, config *PortfolioConstraint, logger *logrus.Entry) []lineupCandidate {
+	constrainedLineups := make([]lineupCandidate, 0, len(lineups))
+
+	for _, lineup := range lineups {
+		if validatePortfolioConstraints(lineup, config) {
+			constrainedLineups = append(constrainedLineups, lineup)
+		}
+	}
+
+	logger.WithFields(logrus.Fields{
+		"original_count":    len(lineups),
+		"constrained_count": len(constrainedLineups),
+		"filtered_out":      len(lineups) - len(constrainedLineups),
+	}).Debug("Portfolio constraints applied")
+
+	return constrainedLineups
+}
+
+// validatePortfolioConstraints checks if lineup meets portfolio constraints
+func validatePortfolioConstraints(lineup lineupCandidate, config *PortfolioConstraint) bool {
+	// Check team concentration limits
+	if len(config.TeamConstraints) > 0 {
+		teamCounts := make(map[string]int)
+		for _, player := range lineup.players {
+			teamCounts[player.Team]++
+		}
+
+		for team, limit := range config.TeamConstraints {
+			count := teamCounts[team]
+			concentration := float64(count) / float64(len(lineup.players))
+			if concentration < limit.Min || concentration > limit.Max {
+				return false
+			}
+		}
+	}
+
+	// Check player concentration limits
+	if len(config.PlayerConstraints) > 0 {
+		for _, player := range lineup.players {
+			if limit, exists := config.PlayerConstraints[fmt.Sprintf("%d", player.ID)]; exists {
+				// For individual players, constraint is binary (0 or 1)
+				if limit.Min > 0 && limit.Max < 1 {
+					return false // Player not allowed
+				}
+			}
+		}
+	}
+
+	// Check diversification requirement
+	if config.MinDiversification > 0 {
+		diversificationScore := calculateLineupDiversification(lineup)
+		if diversificationScore < config.MinDiversification {
+			return false
+		}
+	}
+
+	return true
+}
+
+// calculateLineupDiversification calculates diversification score for a lineup
+func calculateLineupDiversification(lineup lineupCandidate) float64 {
+	if len(lineup.players) <= 1 {
+		return 0.0
+	}
+
+	// Calculate Herfindahl-Hirschman Index for teams
+	teamCounts := make(map[string]int)
+	for _, player := range lineup.players {
+		teamCounts[player.Team]++
+	}
+
+	hhi := 0.0
+	totalPlayers := float64(len(lineup.players))
+	for _, count := range teamCounts {
+		share := float64(count) / totalPlayers
+		hhi += share * share
+	}
+
+	// Diversification score = 1 - HHI (higher is more diversified)
+	return 1.0 - hhi
+}
+
+// calculateOptimalPortfolioWeights calculates optimal weights using portfolio theory
+func calculateOptimalPortfolioWeights(lineups []lineupCandidate, config *PortfolioConstraint, logger *logrus.Entry) map[int]float64 {
+	n := len(lineups)
+	if n == 0 {
+		return make(map[int]float64)
+	}
+
+	weights := make(map[int]float64)
+
+	if config.UseRiskParity {
+		// Risk parity: equal risk contribution
+		for i := 0; i < n; i++ {
+			weights[i] = 1.0 / float64(n)
+		}
+	} else {
+		// Mean-variance optimization
+		returns := make([]float64, n)
+		risks := make([]float64, n)
+
+		// Calculate expected returns and risks
+		for i, lineup := range lineups {
+			returns[i] = lineup.projectedPoints
+			risks[i] = calculateLineupRisk(lineup)
+		}
+
+		// Simple mean-variance allocation
+		totalReturn := 0.0
+		totalRisk := 0.0
+		for i := 0; i < n; i++ {
+			totalReturn += returns[i]
+			totalRisk += risks[i]
+		}
+
+		// Weight by risk-adjusted return
+		for i := 0; i < n; i++ {
+			if totalRisk > 0 {
+				riskAdjustedReturn := returns[i] / (1.0 + risks[i]*config.RiskAversion)
+				weights[i] = riskAdjustedReturn / totalReturn
+			} else {
+				weights[i] = 1.0 / float64(n)
+			}
+		}
+
+		// Normalize weights
+		totalWeight := 0.0
+		for _, w := range weights {
+			totalWeight += w
+		}
+		if totalWeight > 0 {
+			for i := range weights {
+				weights[i] /= totalWeight
+			}
+		}
+	}
+
+	// Apply position size limits
+	maxWeight := config.MaxPositionSize
+	if maxWeight <= 0 {
+		maxWeight = 1.0 / float64(n) * 2.0 // Default: 2x equal weight
+	}
+
+	for i := range weights {
+		if weights[i] > maxWeight {
+			weights[i] = maxWeight
+		}
+	}
+
+	// Re-normalize after applying limits
+	totalWeight := 0.0
+	for _, w := range weights {
+		totalWeight += w
+	}
+	if totalWeight > 0 {
+		for i := range weights {
+			weights[i] /= totalWeight
+		}
+	}
+
+	logger.WithFields(logrus.Fields{
+		"weights_calculated": len(weights),
+		"max_weight":        getMaxWeight(weights),
+		"min_weight":        getMinWeight(weights),
+	}).Debug("Portfolio weights calculated")
+
+	return weights
+}
+
+// selectLineupsFromWeights selects lineups based on portfolio weights
+func selectLineupsFromWeights(lineups []lineupCandidate, weights map[int]float64, numLineups int, logger *logrus.Entry) []lineupCandidate {
+	if numLineups <= 0 || len(lineups) == 0 {
+		return []lineupCandidate{}
+	}
+
+	// Create weighted selection
+	weightedLineups := make([]WeightedLineup, 0, len(lineups))
+	for i, lineup := range lineups {
+		if weight, exists := weights[i]; exists && weight > 0 {
+			weightedLineups = append(weightedLineups, WeightedLineup{
+				lineup: lineup,
+				weight: weight,
+				index:  i,
+			})
+		}
+	}
+
+	// Sort by weight (descending)
+	sort.Slice(weightedLineups, func(i, j int) bool {
+		return weightedLineups[i].weight > weightedLineups[j].weight
+	})
+
+	// Select top lineups up to numLineups
+	selectedCount := numLineups
+	if selectedCount > len(weightedLineups) {
+		selectedCount = len(weightedLineups)
+	}
+
+	selectedLineups := make([]lineupCandidate, selectedCount)
+	for i := 0; i < selectedCount; i++ {
+		selectedLineups[i] = weightedLineups[i].lineup
+	}
+
+	logger.WithFields(logrus.Fields{
+		"available_lineups": len(weightedLineups),
+		"selected_lineups":  selectedCount,
+		"top_weight":       getTopWeight(weightedLineups),
+	}).Debug("Lineups selected from portfolio weights")
+
+	return selectedLineups
+}
+
+// getSportNameFromID converts SportID to sport name string
+// TODO: This should query the database or use a proper mapping service
+func getSportNameFromID(sportID uuid.UUID) string {
+	// For now, return a default sport - in production this would query the database
+	// or use a mapping service to convert SportID to sport name
+	return "nba" // Default to NBA for now
+}
+
+// filterOutTopPlayers removes top N players from the list for diversity
+func filterOutTopPlayers(players []types.Player, optimalPlayerIDs []uint, countToRemove int) []types.Player {
+	if countToRemove <= 0 || len(optimalPlayerIDs) == 0 {
+		return players
+	}
+	
+	// Only remove up to the specified count
+	removeCount := countToRemove
+	if removeCount > len(optimalPlayerIDs) {
+		removeCount = len(optimalPlayerIDs)
+	}
+	
+	removeMap := make(map[uint]bool)
+	for i := 0; i < removeCount; i++ {
+		removeMap[optimalPlayerIDs[i]] = true
+	}
+	
+	filtered := make([]types.Player, 0, len(players))
+	for _, player := range players {
+		playerID := uint(player.ID.ID())
+		if !removeMap[playerID] {
+			filtered = append(filtered, player)
+		}
+	}
+	
+	return filtered
+}
+
+// Helper functions for portfolio optimization
+
+func getMaxWeight(weights map[int]float64) float64 {
+	max := 0.0
+	for _, w := range weights {
+		if w > max {
+			max = w
+		}
+	}
+	return max
+}
+
+func getMinWeight(weights map[int]float64) float64 {
+	if len(weights) == 0 {
+		return 0.0
+	}
+	min := 1.0
+	for _, w := range weights {
+		if w < min {
+			min = w
+		}
+	}
+	return min
+}
+
+type WeightedLineup struct {
+	lineup lineupCandidate
+	weight float64
+	index  int
+}
+
+func getTopWeight(weightedLineups []WeightedLineup) float64 {
+	if len(weightedLineups) == 0 {
+		return 0.0
+	}
+	return weightedLineups[0].weight
+}
+
+// getSalaryForPlatform gets the appropriate salary for the platform
+func getSalaryForPlatform(player types.Player, platform string) int {
+	if strings.ToLower(platform) == "fanduel" && player.SalaryFD > 0 {
+		return player.SalaryFD
+	}
+	if player.SalaryDK > 0 {
+		return player.SalaryDK
+	}
+	// Fallback to FD if DK is 0
+	return player.SalaryFD
 }

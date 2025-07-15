@@ -25,6 +25,39 @@ type Client struct {
 	Hub    *Hub
 }
 
+// AnalyticsEvent represents real-time analytics events
+type AnalyticsEvent struct {
+	Type        string                 `json:"type"`
+	UserID      uuid.UUID              `json:"user_id"`
+	EventID     string                 `json:"event_id"`
+	Category    string                 `json:"category"` // "portfolio", "ml", "performance"
+	Data        interface{}            `json:"data"`
+	Metadata    map[string]interface{} `json:"metadata"`
+	Timestamp   int64                  `json:"timestamp"`
+	Progress    *ProgressData          `json:"progress,omitempty"`
+}
+
+// ProgressData represents progress information for long-running analytics
+type ProgressData struct {
+	Percentage int    `json:"percentage"`
+	Stage      string `json:"stage"`
+	Message    string `json:"message"`
+	ETA        int64  `json:"eta_seconds,omitempty"`
+}
+
+// AnalyticsSubscription represents user subscription to analytics events
+type AnalyticsSubscription struct {
+	UserID     uuid.UUID `json:"user_id"`
+	EventTypes []string  `json:"event_types"`
+	Categories []string  `json:"categories"`
+}
+
+// Message represents a WebSocket message
+type Message struct {
+	Type    string      `json:"type"`
+	Payload interface{} `json:"payload"`
+}
+
 // Hub maintains active WebSocket connections and broadcasts messages
 type Hub struct {
 	clients    map[*Client]bool
@@ -34,6 +67,12 @@ type Hub struct {
 	unregister chan *Client
 	logger     *logrus.Logger
 	mutex      sync.RWMutex
+	
+	// Analytics-specific channels
+	analyticsEvents    chan AnalyticsEvent
+	subscriptions      map[uuid.UUID]map[string]bool // userID -> eventType -> subscribed
+	eventBuffer        map[uuid.UUID][]AnalyticsEvent // Buffer events for offline users
+	analyticsEnabled   bool
 }
 
 // NewHub creates a new WebSocket hub
@@ -45,6 +84,12 @@ func NewHub(logger *logrus.Logger) *Hub {
 		register:    make(chan *Client),
 		unregister:  make(chan *Client),
 		logger:      logger,
+		
+		// Analytics-specific initialization
+		analyticsEvents:  make(chan AnalyticsEvent, 512),
+		subscriptions:    make(map[uuid.UUID]map[string]bool),
+		eventBuffer:      make(map[uuid.UUID][]AnalyticsEvent),
+		analyticsEnabled: true,
 	}
 }
 
@@ -101,6 +146,11 @@ func (h *Hub) Run() {
 				}
 			}
 			h.mutex.RUnlock()
+			
+		case analyticsEvent := <-h.analyticsEvents:
+			if h.analyticsEnabled {
+				h.handleAnalyticsEvent(analyticsEvent)
+			}
 		}
 	}
 }
@@ -227,5 +277,187 @@ func (c *Client) writePump() {
 				return
 			}
 		}
+	}
+}
+
+// Analytics-specific methods
+
+// SendAnalyticsEvent sends an analytics event to subscribed users
+func (h *Hub) SendAnalyticsEvent(event AnalyticsEvent) {
+	if !h.analyticsEnabled {
+		return
+	}
+	
+	select {
+	case h.analyticsEvents <- event:
+	default:
+		h.logger.Warn("Analytics events channel is full, dropping event")
+	}
+}
+
+// SubscribeToAnalytics subscribes a user to specific analytics event types
+func (h *Hub) SubscribeToAnalytics(userID uuid.UUID, eventTypes []string) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+	
+	if h.subscriptions[userID] == nil {
+		h.subscriptions[userID] = make(map[string]bool)
+	}
+	
+	for _, eventType := range eventTypes {
+		h.subscriptions[userID][eventType] = true
+	}
+	
+	h.logger.WithFields(logrus.Fields{
+		"user_id":     userID,
+		"event_types": eventTypes,
+	}).Info("User subscribed to analytics events")
+	
+	// Send buffered events if any
+	h.sendBufferedEvents(userID)
+}
+
+// UnsubscribeFromAnalytics unsubscribes a user from analytics events
+func (h *Hub) UnsubscribeFromAnalytics(userID uuid.UUID, eventTypes []string) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+	
+	if h.subscriptions[userID] == nil {
+		return
+	}
+	
+	for _, eventType := range eventTypes {
+		delete(h.subscriptions[userID], eventType)
+	}
+	
+	// Clean up empty subscription
+	if len(h.subscriptions[userID]) == 0 {
+		delete(h.subscriptions, userID)
+	}
+	
+	h.logger.WithFields(logrus.Fields{
+		"user_id":     userID,
+		"event_types": eventTypes,
+	}).Info("User unsubscribed from analytics events")
+}
+
+// handleAnalyticsEvent processes analytics events and sends to subscribed users
+func (h *Hub) handleAnalyticsEvent(event AnalyticsEvent) {
+	h.mutex.RLock()
+	defer h.mutex.RUnlock()
+	
+	// Check if specific user event
+	if event.UserID != uuid.Nil {
+		h.sendEventToUser(event.UserID, event)
+		return
+	}
+	
+	// Broadcast to all subscribed users
+	for userID, subscriptions := range h.subscriptions {
+		if subscriptions[event.Type] || subscriptions["all"] {
+			h.sendEventToUser(userID, event)
+		}
+	}
+}
+
+// sendEventToUser sends an analytics event to a specific user
+func (h *Hub) sendEventToUser(userID uuid.UUID, event AnalyticsEvent) {
+	// Check if user is online
+	clients := h.userClients[userID]
+	if len(clients) == 0 {
+		// Buffer event for offline user
+		h.bufferEventForUser(userID, event)
+		return
+	}
+	
+	// Send to all user connections
+	data, err := json.Marshal(Message{
+		Type:    "analytics_event",
+		Payload: event,
+	})
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to marshal analytics event")
+		return
+	}
+	
+	for _, client := range clients {
+		select {
+		case client.Send <- data:
+		default:
+			h.logger.WithField("user_id", userID).Warn("Client send channel full, dropping analytics event")
+		}
+	}
+}
+
+// bufferEventForUser buffers an analytics event for offline users
+func (h *Hub) bufferEventForUser(userID uuid.UUID, event AnalyticsEvent) {
+	const maxBufferSize = 100
+	
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+	
+	buffer := h.eventBuffer[userID]
+	buffer = append(buffer, event)
+	
+	// Keep only the most recent events
+	if len(buffer) > maxBufferSize {
+		buffer = buffer[len(buffer)-maxBufferSize:]
+	}
+	
+	h.eventBuffer[userID] = buffer
+}
+
+// sendBufferedEvents sends buffered events to a user who just came online
+func (h *Hub) sendBufferedEvents(userID uuid.UUID) {
+	buffer := h.eventBuffer[userID]
+	if len(buffer) == 0 {
+		return
+	}
+	
+	// Send all buffered events
+	for _, event := range buffer {
+		h.sendEventToUser(userID, event)
+	}
+	
+	// Clear buffer
+	delete(h.eventBuffer, userID)
+	
+	h.logger.WithFields(logrus.Fields{
+		"user_id":       userID,
+		"buffered_events": len(buffer),
+	}).Info("Sent buffered analytics events to user")
+}
+
+// EnableAnalytics enables analytics event processing
+func (h *Hub) EnableAnalytics() {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+	h.analyticsEnabled = true
+	h.logger.Info("Analytics event processing enabled")
+}
+
+// DisableAnalytics disables analytics event processing
+func (h *Hub) DisableAnalytics() {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+	h.analyticsEnabled = false
+	h.logger.Info("Analytics event processing disabled")
+}
+
+// GetAnalyticsStats returns analytics hub statistics
+func (h *Hub) GetAnalyticsStats() map[string]interface{} {
+	h.mutex.RLock()
+	defer h.mutex.RUnlock()
+	
+	totalBuffered := 0
+	for _, buffer := range h.eventBuffer {
+		totalBuffered += len(buffer)
+	}
+	
+	return map[string]interface{}{
+		"analytics_enabled":    h.analyticsEnabled,
+		"subscribed_users":     len(h.subscriptions),
+		"buffered_events":      totalBuffered,
+		"analytics_channel_len": len(h.analyticsEvents),
 	}
 }
