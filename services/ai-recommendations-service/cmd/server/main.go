@@ -74,7 +74,7 @@ func main() {
 	claudeClient := services.NewClaudeClient(cfg, structuredLogger)
 	promptBuilder := services.NewPromptBuilder(cacheService, structuredLogger)
 	realtimeAggregator := services.NewRealtimeAggregator(cacheService, structuredLogger)
-	ownershipAnalyzer := services.NewOwnershipAnalyzer(db, cacheService, structuredLogger)
+	ownershipAnalyzer := services.NewOwnershipAnalyzer(db.DB, cacheService, structuredLogger)
 	aiEngine := services.NewAIEngine(claudeClient, promptBuilder, realtimeAggregator, ownershipAnalyzer, structuredLogger)
 
 	// Initialize WebSocket hub for real-time recommendation updates
@@ -87,14 +87,14 @@ func main() {
 
 	// Initialize handlers
 	recommendationHandler := handlers.NewRecommendationHandler(
-		db,
+		db.DB,
 		aiEngine,
 		wsHub,
 		cfg,
 		structuredLogger,
 	)
 	analysisHandler := handlers.NewAnalysisHandler(
-		db,
+		db.DB,
 		aiEngine,
 		ownershipAnalyzer,
 		cfg,
@@ -105,7 +105,7 @@ func main() {
 		cfg,
 		structuredLogger,
 	)
-	healthHandler := handlers.NewHealthHandler(db, redisClient, claudeClient, structuredLogger)
+	healthHandler := handlers.NewHealthHandler(db.DB, redisClient, claudeClient, structuredLogger)
 
 	// Setup API routes for AI recommendations service
 	apiV1 := router.Group("/api/v1")

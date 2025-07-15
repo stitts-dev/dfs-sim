@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -289,7 +290,12 @@ func (h *AnalysisHandler) getPlayerOwnership(playerID uint, ownershipInsights *m
 }
 
 func (h *AnalysisHandler) getContestMetadata(contestID uint) (*models.ContestMetadata, error) {
-	// This would query the database for contest information
+	// TODO: Implement actual database query to fetch contest metadata
+	// Should query contests table with proper joins to get:
+	// - Contest details (name, fees, prizes)
+	// - Entry counts
+	// - Start time and live status
+	// - Payout structure information
 	// Placeholder implementation
 	return &models.ContestMetadata{
 		ContestID:   contestID,
@@ -299,7 +305,7 @@ func (h *AnalysisHandler) getContestMetadata(contestID uint) (*models.ContestMet
 		MaxEntries:  10000,
 		CurrentEntries: 8500,
 		SalaryCap:   50000,
-		StartTime:   "2024-01-01T13:00:00Z", // Would be actual time.Time
+		StartTime:   time.Now().Add(2 * time.Hour), // Would be actual contest start time
 		IsLive:      true,
 		PayoutStructure: "top_heavy",
 	}, nil
@@ -331,7 +337,7 @@ func (h *AnalysisHandler) generateStrategicInsights(
 			insights = append(insights, "High number of chalk plays - consider contrarian approach")
 		}
 		
-		if contestMeta.CurrentEntries > contestMeta.MaxEntries*0.8 {
+		if contestMeta.CurrentEntries > int(float64(contestMeta.MaxEntries)*0.8) {
 			insights = append(insights, "Contest is filling up - late entry advantage diminishing")
 		}
 	} else if strategy == "cash" {

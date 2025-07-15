@@ -366,9 +366,13 @@ func (h *HealthHandler) getRedisMetrics() RedisMetrics {
 	metrics.CommandLatency = time.Since(start)
 
 	// Get Redis info
-	info, err := h.redisClient.Info(context.Background(), "memory", "clients", "stats").Result()
+	_, err = h.redisClient.Info(context.Background(), "memory", "clients", "stats").Result()
 	if err == nil {
-		// Parse Redis info (simplified)
+		// TODO: Implement actual Redis info parsing instead of using placeholder values
+		// Parse Redis info string to extract:
+		// - connected_clients from Clients section
+		// - used_memory from Memory section  
+		// - keyspace_hits/keyspace_misses from Stats section to calculate hit rate
 		metrics.ConnectedClients = 10  // Placeholder
 		metrics.UsedMemory = 1024000   // Placeholder
 		metrics.HitRate = 85.0         // Placeholder

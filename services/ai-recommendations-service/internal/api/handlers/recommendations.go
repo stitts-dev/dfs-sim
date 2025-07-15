@@ -356,7 +356,7 @@ func (h *RecommendationHandler) saveRecommendationToDatabase(request *services.R
 		ModelUsed:      response.ModelUsed,
 		Confidence:     response.Confidence,
 		TokensUsed:     &response.TokensUsed,
-		ResponseTimeMs: &int(response.ProcessingTimeMs),
+		ResponseTimeMs: func(v int) *int { return &v }(int(response.ProcessingTimeMs)),
 	}
 
 	if err := h.db.Create(&recommendation).Error; err != nil {

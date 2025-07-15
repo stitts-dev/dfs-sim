@@ -165,7 +165,11 @@ func (pb *PromptBuilder) buildReplacements(ctx models.PromptContext, players []m
 	// Player context
 	if len(players) > 0 {
 		replacements["player_count"] = len(players)
-		replacements["top_players"] = pb.formatTopPlayers(players[:min(5, len(players))])
+		maxPlayers := 5
+		if len(players) < maxPlayers {
+			maxPlayers = len(players)
+		}
+		replacements["top_players"] = pb.formatTopPlayers(players[:maxPlayers])
 		replacements["salary_range"] = pb.formatSalaryRange(players)
 		replacements["position_breakdown"] = pb.formatPositionBreakdown(players)
 	}
@@ -414,14 +418,6 @@ func (pb *PromptBuilder) formatSuccessfulPatterns(patterns map[string]float64) s
 		return "No historical patterns available"
 	}
 	return strings.Join(formatted, ", ")
-}
-
-// Utility function
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // Template and modifier initialization methods

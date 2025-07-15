@@ -428,7 +428,7 @@ func (ae *AIEngine) generateRealTimeAlerts(ctx context.Context, contestID uint, 
 	for _, rec := range recommendations {
 		// Get latest real-time data for this player
 		if latestData, err := ae.realtimeAggregator.GetLatestData(rec.PlayerID, "injury"); err == nil {
-			if latestData.ImpactRating < -2 {
+			if latestData.ImpactRating != nil && *latestData.ImpactRating < -2 {
 				alerts = append(alerts, models.RealTimeAlert{
 					AlertType:    "injury",
 					Severity:     "high",

@@ -349,8 +349,8 @@ func (h *OwnershipHandler) filterTrendsByTimeframe(trends []services.OwnershipTr
 func (h *OwnershipHandler) enhanceTrendsWithProjections(trends []services.OwnershipTrend, contestID uint) {
 	// Add ownership projections to trend data
 	// This would implement prediction algorithms
-	for i := range trends {
-		// Add projected ownership fields
+	for _ = range trends {
+		// TODO: Add projected ownership fields
 		// trends[i].ProjectedOwnership = calculateProjection(trends[i])
 	}
 }

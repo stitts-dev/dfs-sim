@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -303,7 +304,7 @@ func (ra *RealtimeAggregator) updateWeatherData(ctx context.Context) {
 			DataType:     "weather",
 			Value:        ra.marshalData(weather),
 			Confidence:   0.9, // Weather data is generally reliable
-			ImpactRating: ra.calculateWeatherImpact(weather),
+			ImpactRating: func(v float64) *float64 { return &v }(ra.calculateWeatherImpact(weather)),
 			Source:       "weather_api",
 			Timestamp:    time.Now(),
 			ExpiresAt:    &[]time.Time{time.Now().Add(30 * time.Minute)}[0],
@@ -345,7 +346,7 @@ func (ra *RealtimeAggregator) updateInjuryReports(ctx context.Context) {
 			DataType:     "injury",
 			Value:        ra.marshalData(report),
 			Confidence:   report.Reliability,
-			ImpactRating: report.ImpactRating,
+			ImpactRating: func(v float64) *float64 { return &v }(report.ImpactRating),
 			Source:       report.Source,
 			Timestamp:    time.Now(),
 			ExpiresAt:    &[]time.Time{time.Now().Add(2 * time.Hour)}[0],
@@ -397,7 +398,7 @@ func (ra *RealtimeAggregator) updateOwnershipData(ctx context.Context) {
 					"trend": snapshot.Trends[playerID],
 				}),
 				Confidence:   0.8, // Ownership data has some uncertainty
-				ImpactRating: ra.calculateOwnershipImpact(change),
+				ImpactRating: func(v float64) *float64 { return &v }(ra.calculateOwnershipImpact(change)),
 				Source:       "ownership_tracker",
 				Timestamp:    time.Now(),
 				ExpiresAt:    &[]time.Time{time.Now().Add(5 * time.Minute)}[0],
@@ -440,7 +441,7 @@ func (ra *RealtimeAggregator) updateNewsData(ctx context.Context) {
 				DataType:     "news",
 				Value:        ra.marshalData(item),
 				Confidence:   0.7, // News reliability varies
-				ImpactRating: item.ImpactRating,
+				ImpactRating: func(v float64) *float64 { return &v }(item.ImpactRating),
 				Source:       item.Source,
 				Timestamp:    time.Now(),
 				ExpiresAt:    &[]time.Time{time.Now().Add(30 * time.Minute)}[0],
