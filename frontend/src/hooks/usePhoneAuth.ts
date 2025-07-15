@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from 'react-query'
 import { useAuthStore } from '@/store/auth'
-import { PhoneAuthError } from '@/types/auth'
+// import { PhoneAuthError } from '@/types/auth'
 
 /**
  * Hook for phone authentication with React Query integration
@@ -25,47 +25,57 @@ export const usePhoneAuth = () => {
   } = useAuthStore()
 
   // Send OTP mutation
-  const sendOTPMutation = useMutation({
-    mutationFn: (phoneNumber: string) => loginWithPhone(phoneNumber),
-    onSuccess: () => {
-      // Invalidate any user-related queries
-      queryClient.invalidateQueries({ queryKey: ['user'] })
-    },
-    onError: (error: Error) => {
-      console.error('Send OTP failed:', error)
+  const sendOTPMutation = useMutation(
+    (phoneNumber: string) => loginWithPhone(phoneNumber),
+    {
+      onSuccess: () => {
+        // Invalidate any user-related queries
+        queryClient.invalidateQueries(['user'])
+      },
+      onError: (error: Error) => {
+        console.error('Send OTP failed:', error)
+      }
     }
-  })
+  )
 
   // Verify OTP mutation
-  const verifyOTPMutation = useMutation({
-    mutationFn: ({ phoneNumber, code }: { phoneNumber: string; code: string }) => 
+  const verifyOTPMutation = useMutation(
+    ({ phoneNumber, code }: { phoneNumber: string; code: string }) => 
       verifyOTP(phoneNumber, code),
-    onSuccess: () => {
-      // Invalidate all queries and refetch user data
-      queryClient.invalidateQueries()
-      queryClient.refetchQueries({ queryKey: ['user'] })
-    },
-    onError: (error: Error) => {
-      console.error('Verify OTP failed:', error)
+    {
+      onSuccess: () => {
+        // Invalidate all queries and refetch user data
+        queryClient.invalidateQueries()
+        queryClient.refetchQueries(['user'])
+      },
+      onError: (error: Error) => {
+        console.error('Verify OTP failed:', error)
+      }
     }
-  })
+  )
 
   // Resend OTP mutation
-  const resendOTPMutation = useMutation({
-    mutationFn: (phoneNumber: string) => resendOTP(phoneNumber),
-    onError: (error: Error) => {
-      console.error('Resend OTP failed:', error)
+  const resendOTPMutation = useMutation(
+    (phoneNumber: string) => resendOTP(phoneNumber),
+    {
+      onError: (error: Error) => {
+        console.error('Resend OTP failed:', error)
+      }
     }
-  })
+  )
 
   // Logout mutation
-  const logoutMutation = useMutation({
-    mutationFn: () => logout(),
-    onSuccess: () => {
-      // Clear all cached data
-      queryClient.clear()
+  const logoutMutation = useMutation(
+    async () => {
+      await logout()
+    },
+    {
+      onSuccess: () => {
+        // Clear all cached data
+        queryClient.clear()
+      }
     }
-  })
+  )
 
   // Helper function to handle phone number formatting
   const formatPhoneNumber = (phone: string): string => {
@@ -106,14 +116,17 @@ export const usePhoneAuth = () => {
     
     // Loading states
     isLoading: isLoading || verificationInProgress,
-    isSendingOTP: sendOTPMutation.isPending,
-    isVerifyingOTP: verifyOTPMutation.isPending,
-    isResendingOTP: resendOTPMutation.isPending,
-    isLoggingOut: logoutMutation.isPending,
+    isSendingOTP: sendOTPMutation.isLoading,
+    isVerifyingOTP: verifyOTPMutation.isLoading,
+    isResendingOTP: resendOTPMutation.isLoading,
+    isLoggingOut: logoutMutation.isLoading,
     
     // Error states
-    error: error || sendOTPMutation.error?.message || verifyOTPMutation.error?.message || 
-           resendOTPMutation.error?.message || logoutMutation.error?.message,
+    error: error || 
+           (sendOTPMutation.error as any)?.message || 
+           (verifyOTPMutation.error as any)?.message || 
+           (resendOTPMutation.error as any)?.message || 
+           (logoutMutation.error as any)?.message,
     
     // Actions
     sendOTP: (phoneNumber: string) => {

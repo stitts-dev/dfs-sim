@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { createClient, User, Session, AuthError } from '@supabase/supabase-js'
+import { createClient, User, Session } from '@supabase/supabase-js'
 
 // Types for Supabase-only auth state
 interface SupabaseUser {

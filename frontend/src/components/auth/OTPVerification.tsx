@@ -153,28 +153,28 @@ export const OTPInput: React.FC<OTPInputProps> = ({
             // Base styles
             'w-12 h-12 sm:w-14 sm:h-14 text-center text-lg sm:text-xl font-semibold',
             'border-2 rounded-lg transition-all duration-200',
-            'focus:outline-none focus:ring-2 focus:ring-offset-2',
+            'focus:outline-none focus:ring-0',
             
             // Light mode colors
-            'bg-white border-zinc-300 text-zinc-900',
-            'focus:border-blue-500 focus:ring-blue-500',
+            'bg-white border-gray-300 text-gray-900',
+            'focus:border-sky-400',
             
             // Dark mode colors
-            'dark:bg-zinc-800 dark:border-zinc-600 dark:text-zinc-100',
-            'dark:focus:border-blue-400 dark:focus:ring-blue-400',
+            'dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100',
+            'dark:focus:border-sky-400',
             
             // Error state
-            error && 'border-red-500 focus:border-red-500 focus:ring-red-500',
-            error && 'dark:border-red-400 dark:focus:border-red-400 dark:focus:ring-red-400',
+            error && 'border-red-400 focus:border-red-400 bg-red-50 dark:bg-red-900/20',
+            error && 'dark:border-red-400 dark:focus:border-red-400',
             
             // Disabled state
-            disabled && 'opacity-50 cursor-not-allowed bg-zinc-100 dark:bg-zinc-700',
+            disabled && 'opacity-50 cursor-not-allowed bg-gray-100 dark:bg-gray-700',
             
             // Active state
-            activeIndex === index && !disabled && 'ring-2 ring-blue-500 dark:ring-blue-400',
+            activeIndex === index && !disabled && 'border-sky-400 bg-sky-50 dark:bg-sky-900/20',
             
             // Filled state
-            value[index] && 'border-green-500 dark:border-green-400'
+            value[index] && 'border-green-400 dark:border-green-400'
           )}
         />
       ))}
@@ -249,8 +249,8 @@ export const OTPVerification: React.FC<{
   return (
     <Field className="space-y-6">
       <div className="text-center">
-        <Label className="text-lg font-semibold">Enter Verification Code</Label>
-        <Description className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+        <Label className="text-lg font-semibold text-gray-900 dark:text-gray-100">Enter Verification Code</Label>
+        <Description className="mt-2 text-sm text-gray-600 dark:text-gray-400">
           We sent a 6-digit code to {formatPhoneForDisplay(phoneNumber)}
         </Description>
       </div>
@@ -287,12 +287,12 @@ export const OTPVerification: React.FC<{
             <button
               onClick={handleResend}
               disabled={isResending}
-              className="text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300 font-medium text-sm transition-colors"
+              className="text-sky-600 hover:text-sky-500 dark:text-sky-400 dark:hover:text-sky-300 font-medium text-sm transition-colors"
             >
               {isResending ? 'Sending...' : 'Resend code'}
             </button>
           ) : (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               Resend code in {timeLeft}s
             </p>
           )}

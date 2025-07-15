@@ -4,8 +4,10 @@ import { Toaster } from 'react-hot-toast'
 import Dashboard from './pages/Dashboard'
 import Optimizer from './pages/Optimizer'
 import Lineups from './pages/Lineups'
+import EnhancedLoginPage from './pages/auth/EnhancedLoginPage'
+import EnhancedSignupPage from './pages/auth/EnhancedSignupPage'
 import Layout from './components/Layout'
-import './services/auth' // Initialize auth
+import ProtectedRoute from './components/auth/ProtectedRoute'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,14 +23,47 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Router>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/optimizer" element={<Optimizer />} />
-            <Route path="/lineups" element={<Lineups />} />
-          </Routes>
-        </Layout>
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/auth/login" element={<EnhancedLoginPage />} />
+          <Route path="/auth/signup" element={<EnhancedSignupPage />} />
+          
+          {/* Protected Routes */}
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route 
+            path="/dashboard" 
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Dashboard />
+                </Layout>
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/optimizer" 
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Optimizer />
+                </Layout>
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/lineups" 
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Lineups />
+                </Layout>
+              </ProtectedRoute>
+            } 
+          />
+          
+          {/* Catch all route - redirect to login */}
+          <Route path="*" element={<Navigate to="/auth/login" replace />} />
+        </Routes>
         <Toaster
           position="top-right"
           toastOptions={{

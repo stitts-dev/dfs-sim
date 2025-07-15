@@ -1,16 +1,43 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from 'react-query'
 import { Link } from 'react-router-dom'
 import { formatCurrency, formatNumber, formatDate, cn } from '@/lib/utils'
 import { getContests, getSupportedSports, type SportInfo, type SportsConfiguration } from '@/services/api'
 import { Contest } from '@/types/contest'
 import { usePreferencesStore } from '@/store/preferences'
+import { useAuthStore } from '@/store/auth'
 import { env, getFallbackSports, debugLog } from '@/lib/env'
+import UsageTracker from '@/components/UsageTracker'
+import OnboardingWizard from '@/components/OnboardingWizard'
 
 export default function Dashboard() {
-  const { beginnerMode } = usePreferencesStore()
+  const { beginnerMode, loadUserPreferences, preferredSports, tutorialProgress } = usePreferencesStore()
+  const { isAuthenticated, user } = useAuthStore()
   const [selectedSport, setSelectedSport] = useState<string>('all')
   const [selectedPlatform, setSelectedPlatform] = useState<string>('all')
+  const [showOnboarding, setShowOnboarding] = useState(false)
+
+  // Load user preferences when user is authenticated
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      loadUserPreferences()
+    }
+  }, [isAuthenticated, user, loadUserPreferences])
+
+  // Show onboarding wizard for new users
+  useEffect(() => {
+    const isTutorialCompleted = tutorialProgress.completed.length > 0
+    if (isAuthenticated && user && !isTutorialCompleted) {
+      setShowOnboarding(true)
+    }
+  }, [isAuthenticated, user, tutorialProgress])
+
+  // Set preferred sport if user has preferences
+  useEffect(() => {
+    if (preferredSports.length > 0 && selectedSport === 'all') {
+      setSelectedSport(preferredSports[0])
+    }
+  }, [preferredSports, selectedSport])
 
   // Fetch supported sports from backend
   const { data: sportsConfig, isLoading: sportsLoading } = useQuery(
@@ -67,17 +94,37 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Contest Dashboard
-        </h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Select a contest to start building lineups
-        </p>
+      {/* Onboarding Wizard */}
+      {showOnboarding && (
+        <OnboardingWizard
+          onComplete={() => {
+            setShowOnboarding(false)
+            loadUserPreferences() // Reload to get updated tutorial_completed status
+          }}
+          onSkip={() => setShowOnboarding(false)}
+        />
+      )}
+
+      {/* Header with Usage Tracker */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+            Contest Dashboard
+          </h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Select a contest to start building lineups
+          </p>
+        </div>
+        {isAuthenticated && user && (
+          <UsageTracker variant="header" />
+        )}
       </div>
 
-      {/* Filters */}
+      {/* Main Content with Usage Tracker */}
+      {isAuthenticated && user ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            {/* Filters */}
       <div className="flex flex-wrap gap-4">
         {beginnerMode && (
           <div className="w-full p-3 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 mb-2">
@@ -153,11 +200,27 @@ export default function Dashboard() {
         </div>
       )}
 
-      {contests?.length === 0 && (
-        <div className="text-center py-12">
-          <p className="text-gray-500 dark:text-gray-400">
-            No active contests found
-          </p>
+            {contests?.length === 0 && (
+              <div className="text-center py-12">
+                <p className="text-gray-500 dark:text-gray-400">
+                  No active contests found
+                </p>
+              </div>
+            )}
+          </div>
+          <div>
+            <UsageTracker variant="dashboard" showUpgradeButton />
+          </div>
+        </div>
+      ) : (
+        // Show basic content for non-authenticated users
+        <div className="space-y-6">
+          {/* Basic filters and contests for non-authenticated users */}
+          <div className="text-center py-12">
+            <p className="text-gray-500 dark:text-gray-400">
+              Please log in to view contests and track your usage
+            </p>
+          </div>
         </div>
       )}
     </div>

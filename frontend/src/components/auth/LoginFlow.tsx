@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Button, Dialog, DialogTitle, DialogBody, DialogActions } from '@/catalyst'
+import { Dialog, DialogTitle, DialogBody, DialogActions } from '@/catalyst'
+import { Button } from '@/components/ui/Button'
 import { PhoneInput } from './PhoneInput'
 import { OTPVerification } from './OTPVerification'
 import { usePhoneAuth } from '@/hooks/usePhoneAuth'

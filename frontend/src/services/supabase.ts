@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
-import { PhoneAuthRequest, VerificationRequest, SupabaseAuthResponse } from '@/types/auth'
+import { SupabaseAuthResponse } from '@/types/auth'
+import { parsePhoneNumber } from 'libphonenumber-js/min'
 
 // Supabase configuration
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
@@ -46,8 +47,35 @@ export const sendOTPWithSupabase = async (phoneNumber: string): Promise<Supabase
     }
 
     return {
-      user: data.user,
-      session: data.session,
+      user: data.user ? {
+        id: (data.user as any).id,
+        phone: (data.user as any).phone,
+        email: (data.user as any).email,
+        created_at: (data.user as any).created_at,
+        updated_at: (data.user as any).updated_at || (data.user as any).created_at,
+        phone_confirmed_at: (data.user as any).phone_confirmed_at,
+        email_confirmed_at: (data.user as any).email_confirmed_at
+      } : null,
+      session: data.session ? {
+        access_token: (data.session as any).access_token,
+        refresh_token: (data.session as any).refresh_token,
+        expires_at: (data.session as any).expires_at || 0,
+        expires_in: (data.session as any).expires_in,
+        token_type: (data.session as any).token_type,
+        user: (data.session as any).user ? {
+          id: (data.session as any).user.id,
+          phone: (data.session as any).user.phone,
+          email: (data.session as any).user.email,
+          created_at: (data.session as any).user.created_at,
+          updated_at: (data.session as any).user.updated_at || (data.session as any).user.created_at,
+          phone_confirmed_at: (data.session as any).user.phone_confirmed_at,
+          email_confirmed_at: (data.session as any).user.email_confirmed_at
+        } : {
+          id: '',
+          created_at: '',
+          updated_at: ''
+        }
+      } : null,
       error: undefined
     }
   } catch (error) {
@@ -92,8 +120,35 @@ export const verifyOTPWithSupabase = async (
     }
 
     return {
-      user: data.user,
-      session: data.session,
+      user: data.user ? {
+        id: (data.user as any).id,
+        phone: (data.user as any).phone,
+        email: (data.user as any).email,
+        created_at: (data.user as any).created_at,
+        updated_at: (data.user as any).updated_at || (data.user as any).created_at,
+        phone_confirmed_at: (data.user as any).phone_confirmed_at,
+        email_confirmed_at: (data.user as any).email_confirmed_at
+      } : null,
+      session: data.session ? {
+        access_token: (data.session as any).access_token,
+        refresh_token: (data.session as any).refresh_token,
+        expires_at: (data.session as any).expires_at || 0,
+        expires_in: (data.session as any).expires_in,
+        token_type: (data.session as any).token_type,
+        user: (data.session as any).user ? {
+          id: (data.session as any).user.id,
+          phone: (data.session as any).user.phone,
+          email: (data.session as any).user.email,
+          created_at: (data.session as any).user.created_at,
+          updated_at: (data.session as any).user.updated_at || (data.session as any).user.created_at,
+          phone_confirmed_at: (data.session as any).user.phone_confirmed_at,
+          email_confirmed_at: (data.session as any).user.email_confirmed_at
+        } : {
+          id: '',
+          created_at: '',
+          updated_at: ''
+        }
+      } : null,
       error: undefined
     }
   } catch (error) {
@@ -167,9 +222,21 @@ export const getSupabaseClient = (): SupabaseClient | null => {
   return supabase
 }
 
-// Utility functions for phone number validation
+// Enhanced utility functions for phone number validation using libphonenumber-js
 export const normalizePhoneNumber = (phone: string): string => {
-  // Remove all non-digit characters except +
+  if (!phone) return ''
+  
+  try {
+    // Try to parse with libphonenumber-js
+    const phoneNumber = parsePhoneNumber(phone)
+    if (phoneNumber && phoneNumber.isValid()) {
+      return phoneNumber.format('E.164')
+    }
+  } catch (error) {
+    // Fall back to manual parsing
+  }
+  
+  // Fallback to original logic for incomplete numbers
   let cleaned = phone.replace(/[^\d+]/g, '')
   
   // Add + if not present
@@ -180,8 +247,8 @@ export const normalizePhoneNumber = (phone: string): string => {
     } else if (/^\d{11}$/.test(cleaned) && cleaned.startsWith('1')) {
       cleaned = '+' + cleaned
     } else {
-      // Default to +1 for incomplete numbers
-      cleaned = '+1' + cleaned
+      // Return as-is for incomplete numbers - don't force +1
+      // cleaned = cleaned (this is a no-op)
     }
   }
   
@@ -189,17 +256,46 @@ export const normalizePhoneNumber = (phone: string): string => {
 }
 
 export const validatePhoneNumber = (phone: string): boolean => {
-  const normalized = normalizePhoneNumber(phone)
-  // E.164 format validation
-  return /^\+[1-9]\d{1,14}$/.test(normalized)
+  if (!phone) return false
+  
+  try {
+    // Use libphonenumber-js for accurate validation
+    const phoneNumber = parsePhoneNumber(phone)
+    return phoneNumber ? phoneNumber.isValid() : false
+  } catch (error) {
+    // Fallback to regex validation
+    const normalized = normalizePhoneNumber(phone)
+    return /^\+[1-9]\d{1,14}$/.test(normalized)
+  }
 }
 
 export const formatPhoneNumber = (phone: string): string => {
+  if (!phone) return ''
+  
+  try {
+    // Use libphonenumber-js for international formatting
+    const phoneNumber = parsePhoneNumber(phone)
+    if (phoneNumber && phoneNumber.isValid()) {
+      return phoneNumber.formatNational()
+    }
+  } catch (error) {
+    // Fall back to manual formatting
+  }
+  
+  // Fallback to original US formatting logic
   const cleaned = phone.replace(/\D/g, '')
   
   if (cleaned.length === 0) return ''
-  if (cleaned.length <= 3) return cleaned
-  if (cleaned.length <= 6) return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3)}`
   
-  return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6, 10)}`
+  // Handle 11-digit US numbers (starting with 1)
+  let numberToFormat = cleaned
+  if (cleaned.length === 11 && cleaned.startsWith('1')) {
+    // Strip the country code "1" and format the 10-digit number
+    numberToFormat = cleaned.slice(1)
+  }
+  
+  if (numberToFormat.length <= 3) return numberToFormat
+  if (numberToFormat.length <= 6) return `(${numberToFormat.slice(0, 3)}) ${numberToFormat.slice(3)}`
+  
+  return `(${numberToFormat.slice(0, 3)}) ${numberToFormat.slice(3, 6)}-${numberToFormat.slice(6, 10)}`
 }

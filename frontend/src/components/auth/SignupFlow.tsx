@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Button, Dialog, DialogTitle, DialogBody, DialogActions } from '@/catalyst'
+import { Dialog, DialogTitle, DialogBody, DialogActions } from '@/catalyst'
+import { Button } from '@/components/ui/Button'
 import { PhoneInput } from './PhoneInput'
 import { OTPVerification } from './OTPVerification'
 import { usePhoneAuth } from '@/hooks/usePhoneAuth'
@@ -40,7 +41,7 @@ export const SignupFlow: React.FC<SignupFlowProps> = ({
     normalizePhoneNumber
   } = usePhoneAuth()
 
-  const { user, currentPhoneNumber, otpSent } = useAuthStore()
+  const { user, otpSent } = useAuthStore()
 
   // Reset state when dialog opens/closes
   useEffect(() => {
@@ -48,13 +49,9 @@ export const SignupFlow: React.FC<SignupFlowProps> = ({
       setCurrentStep(initialStep)
       setVerificationCode('')
       clearError()
-      if (!currentPhoneNumber) {
-        setPhoneNumber('')
-      } else {
-        setPhoneNumber(currentPhoneNumber)
-      }
+      setPhoneNumber('')
     }
-  }, [isOpen, initialStep, currentPhoneNumber, clearError])
+  }, [isOpen, initialStep, clearError])
 
   // Auto-advance to verification step if OTP was sent
   useEffect(() => {
@@ -264,7 +261,7 @@ export const SignupPage: React.FC<{
   onComplete?: (user: any) => void
   className?: string
 }> = ({ onComplete, className }) => {
-  const [currentStep, setCurrentStep] = useState<SignupStep>('phone')
+  const [currentStep] = useState<SignupStep>('phone')
 
   return (
     <div className={clsx('min-h-screen flex items-center justify-center p-4', className)}>
@@ -295,8 +292,7 @@ export const InlineSignupForm: React.FC<{
     sendOTP,
     isSendingOTP,
     error,
-    otpSent,
-    currentPhoneNumber
+    otpSent
   } = usePhoneAuth()
 
   useEffect(() => {

@@ -1,75 +1,60 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { AuthState, AuthUser, AuthResponse, PhoneAuthError } from '@/types/auth'
-import * as api from '@/services/api'
-import { sendOTPWithSupabase, verifyOTPWithSupabase, signOutWithSupabase, isSupabaseAvailable } from '@/services/supabase'
+import { AuthState, AuthUser, AuthResponse } from '@/types/auth'
 
-// API endpoints for phone authentication
+// API endpoints for phone authentication via microservices
 const sendPhoneOTP = async (phoneNumber: string) => {
-  // Try Supabase first if available, fallback to backend API
-  if (isSupabaseAvailable()) {
-    try {
-      const response = await sendOTPWithSupabase(phoneNumber)
-      if (response.error) {
-        throw new Error(response.error.message)
-      }
-      return { success: true, message: 'OTP sent via Supabase' }
-    } catch (error) {
-      console.warn('Supabase OTP failed, falling back to backend API:', error)
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'
+  
+  // First try login for existing verified users (fast path)
+  try {
+    const loginResponse = await fetch(`${apiUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone_number: phoneNumber })
+    })
+
+    if (loginResponse.ok) {
+      return await loginResponse.json()
     }
+    
+    // If login fails with 404 (not registered) or 400 (not verified), 
+    // fallback to register endpoint
+    if (loginResponse.status === 404 || loginResponse.status === 400) {
+      const registerResponse = await fetch(`${apiUrl}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone_number: phoneNumber })
+      })
+      
+      if (!registerResponse.ok) {
+        const error = await registerResponse.json()
+        throw new Error(error.error || error.message || 'Failed to send verification code')
+      }
+      
+      return await registerResponse.json()
+    }
+    
+    // For other login errors (not 404/400), throw the original error
+    const error = await loginResponse.json()
+    throw new Error(error.error || error.message || 'Authentication failed')
+    
+  } catch (error) {
+    // If it's a network error, provide helpful message
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error('Network error. Please check your connection and try again.')
+    }
+    
+    // Re-throw other errors as-is
+    throw error
   }
-
-  // Fallback to backend API
-  const response = await fetch('/api/v1/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phone_number: phoneNumber })
-  })
-
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.message || 'Failed to send OTP')
-  }
-
-  return await response.json()
 }
 
 const verifyPhoneOTP = async (phoneNumber: string, code: string): Promise<AuthResponse> => {
-  // Try Supabase first if available, fallback to backend API
-  if (isSupabaseAvailable()) {
-    try {
-      const response = await verifyOTPWithSupabase(phoneNumber, code)
-      if (response.error) {
-        throw new Error(response.error.message)
-      }
-      
-      // Convert Supabase response to our AuthResponse format
-      if (response.session && response.user) {
-        return {
-          token: response.session.access_token,
-          expires_at: new Date(response.session.expires_at * 1000).toISOString(),
-          user: {
-            id: parseInt(response.user.id), // Convert string to number
-            phone_number: response.user.phone || phoneNumber,
-            phone_verified: !!response.user.phone_confirmed_at,
-            email: response.user.email,
-            email_verified: !!response.user.email_confirmed_at,
-            subscription_tier: 'free', // Default for new users
-            subscription_status: 'active',
-            is_active: true,
-            created_at: response.user.created_at,
-            updated_at: response.user.updated_at
-          } as AuthUser,
-          is_new_user: false // Supabase doesn't provide this info directly
-        }
-      }
-    } catch (error) {
-      console.warn('Supabase verification failed, falling back to backend API:', error)
-    }
-  }
-
-  // Fallback to backend API
-  const response = await fetch('/api/v1/auth/verify', {
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'
+  
+  // Use API Gateway -> User Service flow for OTP verification
+  const response = await fetch(`${apiUrl}/auth/verify`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ phone_number: phoneNumber, code })
@@ -77,16 +62,18 @@ const verifyPhoneOTP = async (phoneNumber: string, code: string): Promise<AuthRe
 
   if (!response.ok) {
     const error = await response.json()
-    throw new Error(error.message || 'Verification failed')
+    throw new Error(error.error || error.message || 'Verification failed')
   }
 
   const data = await response.json()
-  return data.data || data
+  return data
 }
 
 const resendPhoneOTP = async (phoneNumber: string) => {
-  // Always use backend API for resend to maintain rate limiting
-  const response = await fetch('/api/v1/auth/resend', {
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'
+  
+  // Use API Gateway -> User Service flow for OTP resend
+  const response = await fetch(`${apiUrl}/auth/resend`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ phone_number: phoneNumber })
@@ -94,14 +81,16 @@ const resendPhoneOTP = async (phoneNumber: string) => {
 
   if (!response.ok) {
     const error = await response.json()
-    throw new Error(error.message || 'Failed to resend OTP')
+    throw new Error(error.error || error.message || 'Failed to resend OTP')
   }
 
   return await response.json()
 }
 
 const refreshAuthToken = async (token: string): Promise<AuthResponse> => {
-  const response = await fetch('/api/v1/auth/refresh', {
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'
+  
+  const response = await fetch(`${apiUrl}/auth/refresh`, {
     method: 'POST',
     headers: { 
       'Content-Type': 'application/json',
@@ -114,11 +103,13 @@ const refreshAuthToken = async (token: string): Promise<AuthResponse> => {
   }
 
   const data = await response.json()
-  return data.data || data
+  return data
 }
 
 const getCurrentUserFromAPI = async (token: string): Promise<AuthUser> => {
-  const response = await fetch('/api/v1/auth/me', {
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'
+  
+  const response = await fetch(`${apiUrl}/auth/me`, {
     method: 'GET',
     headers: { 
       'Authorization': `Bearer ${token}`
@@ -130,7 +121,38 @@ const getCurrentUserFromAPI = async (token: string): Promise<AuthUser> => {
   }
 
   const data = await response.json()
-  return data.data || data
+  return data
+}
+
+// Automatic token refresh setup
+let refreshInterval: NodeJS.Timeout | null = null
+
+const setupTokenRefresh = (authStore: any) => {
+  // Clear existing interval
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
+  }
+  
+  // Set up automatic refresh every 50 minutes (tokens expire in 1 hour)
+  refreshInterval = setInterval(async () => {
+    try {
+      const { token, isAuthenticated } = authStore
+      if (token && isAuthenticated) {
+        await authStore.refreshToken()
+        console.log('Token refreshed automatically')
+      }
+    } catch (error) {
+      console.warn('Automatic token refresh failed:', error)
+      // If refresh fails, user will be logged out automatically by the refresh method
+    }
+  }, 50 * 60 * 1000) // 50 minutes
+}
+
+const clearTokenRefresh = () => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
+    refreshInterval = null
+  }
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -186,6 +208,9 @@ export const useAuthStore = create<AuthState>()(
             currentPhoneNumber: null,
             error: null
           })
+          
+          // Set up automatic token refresh for this session
+          setupTokenRefresh(get())
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Verification failed'
           set({ 
@@ -217,17 +242,28 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async () => {
-        try {
-          // Try to sign out from Supabase if available
-          if (isSupabaseAvailable()) {
-            await signOutWithSupabase()
+        const { token } = get()
+        
+        // Call logout endpoint if we have a token
+        if (token) {
+          try {
+            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'
+            await fetch(`${apiUrl}/auth/logout`, {
+              method: 'POST',
+              headers: { 
+                'Authorization': `Bearer ${token}`
+              }
+            })
+          } catch (error) {
+            console.warn('Logout API call failed:', error)
           }
-        } catch (error) {
-          console.warn('Supabase signout failed:', error)
         }
 
         // Clear local storage
         localStorage.removeItem('auth_token')
+        
+        // Clear automatic token refresh
+        clearTokenRefresh()
         
         // Reset auth state
         set({
@@ -311,6 +347,9 @@ export const useAuthStore = create<AuthState>()(
           setTimeout(() => {
             state?.getCurrentUser?.()
           }, 100)
+          
+          // Set up automatic token refresh
+          setupTokenRefresh(state)
         }
       }
     }

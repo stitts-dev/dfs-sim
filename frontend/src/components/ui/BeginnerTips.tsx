@@ -63,7 +63,8 @@ export const BeginnerTips: React.FC = () => {
   const { beginnerMode, tutorialProgress, completeTutorialStep } = usePreferencesStore()
   const [currentTipIndex, setCurrentTipIndex] = useState(0)
   const [isVisible, setIsVisible] = useState(true)
-  const [_hasInteracted, setHasInteracted] = useState(false)
+  // const [_hasInteracted, _setHasInteracted] = useState(false)
+  const _setHasInteracted = (_: boolean) => {}
 
   const tips = tipsByRoute[location.pathname] || []
   const currentTip = tips[currentTipIndex]
@@ -72,7 +73,7 @@ export const BeginnerTips: React.FC = () => {
     // Reset on route change
     setCurrentTipIndex(0)
     setIsVisible(true)
-    setHasInteracted(false)
+    _setHasInteracted(false)
   }, [location.pathname])
 
   useEffect(() => {
@@ -92,7 +93,7 @@ export const BeginnerTips: React.FC = () => {
     } else {
       setIsVisible(false)
     }
-    setHasInteracted(true)
+    _setHasInteracted(true)
   }
 
   const handleDismiss = () => {
@@ -100,7 +101,7 @@ export const BeginnerTips: React.FC = () => {
       completeTutorialStep(currentTip.id)
     }
     setIsVisible(false)
-    setHasInteracted(true)
+    _setHasInteracted(true)
   }
 
   if (!beginnerMode || !currentTip || !isVisible) {
