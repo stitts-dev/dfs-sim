@@ -91,7 +91,7 @@ func main() {
 	espnGolf = providers.NewESPNGolfClient(cacheService, structuredLogger)
 
 	// Initialize golf business services
-	_ = services.NewGolfProjectionService(db, cacheService, structuredLogger)
+	golfProjectionService := services.NewGolfProjectionService(db, cacheService, structuredLogger)
 
 	// Use ESPN as primary provider if RapidAPI is not available
 	var primaryGolfProvider interface {
@@ -130,44 +130,42 @@ func main() {
 	router.Use(gin.Logger(), gin.Recovery())
 
 	// Initialize handlers
-	// TODO: Temporarily disabled due to type mismatches between models.Player and types.Player
-	// golfHandler := handlers.NewGolfHandler(
-	//	db, 
-	//	cacheService, 
-	//	golfProjectionService,
-	//	golfSyncService, 
-	//	rapidAPIGolf, 
-	//	espnGolf,
-	//	structuredLogger,
-	// )
+	golfHandler := handlers.NewGolfHandler(
+		db, 
+		cacheService, 
+		golfProjectionService,
+		golfSyncService, 
+		rapidAPIGolf, 
+		espnGolf,
+		structuredLogger,
+	)
 	healthHandler := handlers.NewHealthHandler(db, redisClient, startupManager, structuredLogger)
 
 	// Setup API routes for golf service only
-	_ = router.Group("/api/v1")
+	apiV1 := router.Group("/api/v1")
 	{
-		// TODO: Temporarily disabled all golf routes due to handler type issues
-		// // Sports configuration endpoints (golf service only supports golf)
-		// apiV1.GET("/sports/available", golfHandler.GetAvailableSports)
-		// 
-		// // Contest endpoints (golf tournaments as contests)
-		// apiV1.GET("/contests", golfHandler.ListContests)
-		// apiV1.GET("/contests/:id", golfHandler.GetContest)
-		// 
-		// // Golf tournament endpoints
-		// apiV1.GET("/golf/tournaments", golfHandler.ListTournaments)
-		// apiV1.GET("/golf/tournaments/:id", golfHandler.GetTournament)
-		// apiV1.GET("/golf/tournaments/:id/leaderboard", golfHandler.GetTournamentLeaderboard)
-		// apiV1.GET("/golf/tournaments/:id/players", golfHandler.GetTournamentPlayers)
-		// apiV1.POST("/golf/tournaments/sync", golfHandler.SyncTournamentData)
-		// 
-		// // Golf player endpoints
-		// apiV1.GET("/golf/players/:id", golfHandler.GetGolfPlayer)
-		// apiV1.GET("/golf/players/:id/projections", golfHandler.GetPlayerProjections)
-		// apiV1.GET("/golf/players/:id/history", golfHandler.GetPlayerCourseHistory)
-		// 
-		// // Golf data sync endpoints
-		// apiV1.POST("/golf/sync/current", golfHandler.SyncCurrentTournament)
-		// apiV1.POST("/golf/sync/schedule", golfHandler.SyncTournamentSchedule)
+		// Sports configuration endpoints (golf service only supports golf)
+		apiV1.GET("/sports/available", golfHandler.GetAvailableSports)
+		
+		// Contest endpoints (golf tournaments as contests)
+		apiV1.GET("/contests", golfHandler.ListContests)
+		apiV1.GET("/contests/:id", golfHandler.GetContest)
+		
+		// Golf tournament endpoints
+		apiV1.GET("/golf/tournaments", golfHandler.ListTournaments)
+		apiV1.GET("/golf/tournaments/:id", golfHandler.GetTournament)
+		apiV1.GET("/golf/tournaments/:id/leaderboard", golfHandler.GetTournamentLeaderboard)
+		apiV1.GET("/golf/tournaments/:id/players", golfHandler.GetTournamentPlayers)
+		apiV1.POST("/golf/tournaments/sync", golfHandler.SyncTournamentData)
+		
+		// Golf player endpoints
+		apiV1.GET("/golf/players/:id", golfHandler.GetGolfPlayer)
+		apiV1.GET("/golf/players/:id/projections", golfHandler.GetPlayerProjections)
+		apiV1.GET("/golf/players/:id/history", golfHandler.GetPlayerCourseHistory)
+		
+		// Golf data sync endpoints
+		apiV1.POST("/golf/sync/current", golfHandler.SyncCurrentTournament)
+		apiV1.POST("/golf/sync/schedule", golfHandler.SyncTournamentSchedule)
 	}
 
 	// Health check endpoints

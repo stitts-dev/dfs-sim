@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TODO: Replace with proper mock from shared testing utilities
 // MockCacheProvider implements a simple in-memory cache for testing
 type MockCacheProvider struct {
 	data map[string]interface{}
@@ -41,10 +43,30 @@ func (m *MockCacheProvider) GetSimple(key string, dest interface{}) error {
 	return json.Unmarshal(data, dest)
 }
 
+// Implement remaining CacheProvider interface methods
+func (m *MockCacheProvider) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error {
+	return m.SetSimple(key, value, expiration)
+}
+
+func (m *MockCacheProvider) Get(ctx context.Context, key string, dest interface{}) error {
+	return m.GetSimple(key, dest)
+}
+
+func (m *MockCacheProvider) Delete(ctx context.Context, key string) error {
+	delete(m.data, key)
+	return nil
+}
+
+func (m *MockCacheProvider) Exists(ctx context.Context, key string) bool {
+	_, exists := m.data[key]
+	return exists
+}
+
 func TestNewRapidAPIGolfClient(t *testing.T) {
 	cache := NewMockCacheProvider()
 	logger := logrus.New()
-	client := NewRapidAPIGolfClient("test-api-key", cache, logger)
+	// Mock DB is nil for unit tests - the client should handle this gracefully
+	client := NewRapidAPIGolfClient("test-api-key", nil, cache, logger)
 
 	assert.NotNil(t, client)
 	assert.Equal(t, "test-api-key", client.apiKey)
@@ -59,7 +81,7 @@ func TestNewRapidAPIGolfClient(t *testing.T) {
 func TestRapidAPIGolfClient_GetPlayers_CacheHit(t *testing.T) {
 	cache := NewMockCacheProvider()
 	logger := logrus.New()
-	client := NewRapidAPIGolfClient("test-api-key", cache, logger)
+	client := NewRapidAPIGolfClient("test-api-key", nil, cache, logger)
 
 	// Pre-populate cache
 	expectedPlayers := []types.PlayerData{
@@ -131,7 +153,7 @@ func TestRapidAPIGolfClient_GetPlayers_APIResponse(t *testing.T) {
 
 	cache := NewMockCacheProvider()
 	logger := logrus.New()
-	client := NewRapidAPIGolfClient("test-api-key", cache, logger)
+	client := NewRapidAPIGolfClient("test-api-key", nil, cache, logger)
 	client.baseURL = server.URL
 
 	players, err := client.GetPlayers(types.SportGolf, "2025-01-08")
@@ -141,23 +163,38 @@ func TestRapidAPIGolfClient_GetPlayers_APIResponse(t *testing.T) {
 	assert.Equal(t, "Tiger Woods", players[0].Name)
 	assert.Equal(t, "USA", players[0].Team)
 	assert.Equal(t, "rapidapi_456", players[0].ExternalID)
-	assert.Equal(t, float64(-10), players[0].Stats["score"])
-	assert.Equal(t, float64(500), players[0].Stats["fedex_points"])
+	// Type assert Stats to map[string]interface{}
+	stats, ok := players[0].Stats.(map[string]interface{})
+	assert.True(t, ok, "Stats should be a map[string]interface{}")
+	assert.Equal(t, float64(-10), stats["score"])
+	assert.Equal(t, float64(500), stats["fedex_points"])
 	assert.Equal(t, 2, client.requestTracker.dailyCount) // 2 API calls (tournament + leaderboard)
 }
 
 func TestRapidAPIGolfClient_DailyLimitExceeded(t *testing.T) {
 	cache := NewMockCacheProvider()
 	logger := logrus.New()
-	client := NewRapidAPIGolfClient("test-api-key", cache, logger)
+	client := NewRapidAPIGolfClient("test-api-key", nil, cache, logger)
 
 	// Manually set daily count to limit
 	client.requestTracker.dailyCount = 20
 
+	// Mock ESPN fallback
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// ESPN returns empty data
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"events": []interface{}{},
+		})
+	}))
+	defer mockServer.Close()
+
+	// Override ESPN client URL
+	client.espnFallback.baseURL = mockServer.URL
+
 	// Should fall back to ESPN
 	players, err := client.GetPlayers(types.SportGolf, "2025-01-08")
 
-	// ESPN mock returns empty, but no error
+	// ESPN returns empty players successfully
 	assert.NoError(t, err)
 	assert.Len(t, players, 0)
 	assert.Equal(t, 20, client.requestTracker.dailyCount) // No additional calls
@@ -184,7 +221,7 @@ func TestRapidAPIGolfClient_GetCurrentTournament(t *testing.T) {
 
 	cache := NewMockCacheProvider()
 	logger := logrus.New()
-	client := NewRapidAPIGolfClient("test-api-key", cache, logger)
+	client := NewRapidAPIGolfClient("test-api-key", nil, cache, logger)
 	client.baseURL = server.URL
 
 	tournament, err := client.GetCurrentTournament()
@@ -227,7 +264,7 @@ func TestRapidAPIGolfClient_RetryLogic(t *testing.T) {
 
 	cache := NewMockCacheProvider()
 	logger := logrus.New()
-	client := NewRapidAPIGolfClient("test-api-key", cache, logger)
+	client := NewRapidAPIGolfClient("test-api-key", nil, cache, logger)
 	client.baseURL = server.URL
 
 	tournament, err := client.GetCurrentTournament()
@@ -241,7 +278,7 @@ func TestRapidAPIGolfClient_RetryLogic(t *testing.T) {
 func TestRapidAPIGolfClient_GetPlayer(t *testing.T) {
 	cache := NewMockCacheProvider()
 	logger := logrus.New()
-	client := NewRapidAPIGolfClient("test-api-key", cache, logger)
+	client := NewRapidAPIGolfClient("test-api-key", nil, cache, logger)
 
 	// Pre-populate cache with players
 	players := []types.PlayerData{
@@ -260,7 +297,7 @@ func TestRapidAPIGolfClient_GetPlayer(t *testing.T) {
 func TestRapidAPIGolfClient_GetTeamRoster(t *testing.T) {
 	cache := NewMockCacheProvider()
 	logger := logrus.New()
-	client := NewRapidAPIGolfClient("test-api-key", cache, logger)
+	client := NewRapidAPIGolfClient("test-api-key", nil, cache, logger)
 
 	// Pre-populate cache with players
 	players := []types.PlayerData{
@@ -306,7 +343,7 @@ func TestRapidAPIGolfClient_WarmCache(t *testing.T) {
 
 	cache := NewMockCacheProvider()
 	logger := logrus.New()
-	client := NewRapidAPIGolfClient("test-api-key", cache, logger)
+	client := NewRapidAPIGolfClient("test-api-key", nil, cache, logger)
 	client.baseURL = server.URL
 
 	err := client.WarmCache()
@@ -324,7 +361,7 @@ func TestRapidAPIGolfClient_WarmCache(t *testing.T) {
 func TestRapidAPIGolfClient_GetDailyUsage(t *testing.T) {
 	cache := NewMockCacheProvider()
 	logger := logrus.New()
-	client := NewRapidAPIGolfClient("test-api-key", cache, logger)
+	client := NewRapidAPIGolfClient("test-api-key", nil, cache, logger)
 
 	// Make some tracking updates
 	client.requestTracker.dailyCount = 15

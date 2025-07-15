@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stitts-dev/dfs-sim/services/sports-data-service/internal/models"
 	"github.com/stitts-dev/dfs-sim/services/sports-data-service/internal/providers"
-	// "github.com/stitts-dev/dfs-sim/shared/pkg/correlation" // TODO: Fix UUID compatibility
 	"github.com/stitts-dev/dfs-sim/shared/pkg/database"
 	"github.com/stitts-dev/dfs-sim/shared/types"
 	"github.com/sirupsen/logrus"
@@ -306,7 +305,7 @@ func (gps *GolfProjectionService) calculateWeatherImpact(weather models.WeatherC
 // Probability calculations
 
 func (gps *GolfProjectionService) calculateCutProbability(
-	player types.Player,
+	player types.PlayerInterface,
 	tournament *models.GolfTournament,
 	entry *models.GolfPlayerEntry,
 	history *models.GolfCourseHistory,
@@ -315,9 +314,9 @@ func (gps *GolfProjectionService) calculateCutProbability(
 
 	// Adjust based on player salary (proxy for ranking/skill)
 	// Use DraftKings salary as default, fallback to FanDuel
-	salary := player.SalaryDK
+	salary := player.GetSalaryDK()
 	if salary == 0 {
-		salary = player.SalaryFD
+		salary = player.GetSalaryFD()
 	}
 	if salary > 10000 {
 		baseProbability += 0.2
@@ -348,7 +347,7 @@ func (gps *GolfProjectionService) calculateCutProbability(
 }
 
 func (gps *GolfProjectionService) calculateTop10Probability(
-	player types.Player,
+	player types.PlayerInterface,
 	tournament *models.GolfTournament,
 	cutProbability float64,
 ) float64 {
@@ -360,9 +359,9 @@ func (gps *GolfProjectionService) calculateTop10Probability(
 	baseProbability := 0.1 // 10% base chance
 
 	// Use DraftKings salary as default, fallback to FanDuel
-	salary := player.SalaryDK
+	salary := player.GetSalaryDK()
 	if salary == 0 {
-		salary = player.SalaryFD
+		salary = player.GetSalaryFD()
 	}
 	if salary > 11000 {
 		baseProbability = 0.25
@@ -377,7 +376,7 @@ func (gps *GolfProjectionService) calculateTop10Probability(
 }
 
 func (gps *GolfProjectionService) calculateTop25Probability(
-	player types.Player,
+	player types.PlayerInterface,
 	tournament *models.GolfTournament,
 	cutProbability float64,
 ) float64 {
@@ -387,7 +386,7 @@ func (gps *GolfProjectionService) calculateTop25Probability(
 }
 
 func (gps *GolfProjectionService) calculateWinProbability(
-	player types.Player,
+	player types.PlayerInterface,
 	tournament *models.GolfTournament,
 	top10Probability float64,
 ) float64 {
@@ -397,9 +396,9 @@ func (gps *GolfProjectionService) calculateWinProbability(
 
 	// Only elite players have realistic win probability
 	// Use DraftKings salary as default, fallback to FanDuel
-	salary := player.SalaryDK
+	salary := player.GetSalaryDK()
 	if salary == 0 {
-		salary = player.SalaryFD
+		salary = player.GetSalaryFD()
 	}
 	if salary > 11500 {
 		return top10Probability * 0.15
@@ -532,9 +531,57 @@ func (gps *GolfProjectionService) getCourseHistory(ctx context.Context, courseID
 }
 
 func (gps *GolfProjectionService) generateCorrelations(players []types.PlayerInterface, entries map[uuid.UUID]*models.GolfPlayerEntry) map[uuid.UUID]map[uuid.UUID]float64 {
-	// TODO: Fix UUID compatibility with correlation package
-	// For now, return empty correlation matrix
+	// TODO: Integrate with shared correlation package once UUID compatibility is resolved
+	// Currently using a simplified correlation implementation based on player positions
+	// Generate a simple correlation matrix based on tee times and groupings
 	correlations := make(map[uuid.UUID]map[uuid.UUID]float64)
+	
+	// Initialize correlation matrix
+	for _, p1 := range players {
+		correlations[p1.GetID()] = make(map[uuid.UUID]float64)
+		for _, p2 := range players {
+			if p1.GetID() == p2.GetID() {
+				correlations[p1.GetID()][p2.GetID()] = 1.0
+			} else {
+				correlations[p1.GetID()][p2.GetID()] = 0.0
+			}
+		}
+	}
+	
+	// Add correlations for players in same groupings (if available in entries)
+	// This is a simplified implementation - in production you'd want more sophisticated correlation modeling
+	for _, p1 := range players {
+		e1, exists1 := entries[p1.GetID()]
+		if !exists1 {
+			continue
+		}
+		
+		for _, p2 := range players {
+			if p1.GetID() == p2.GetID() {
+				continue
+			}
+			
+			e2, exists2 := entries[p2.GetID()]
+			if !exists2 {
+				continue
+			}
+			
+			// TODO: Implement proper tee time correlation using TeeTimes array
+			// Currently using position proximity as a proxy for correlation
+			// Players in same tournament round/grouping have some correlation
+			// For now, we'll use a simplified correlation based on position proximity
+			// In a full implementation, you'd parse TeeTimes array and compare
+			if e1.CurrentPosition > 0 && e2.CurrentPosition > 0 {
+				positionDiff := math.Abs(float64(e1.CurrentPosition - e2.CurrentPosition))
+				if positionDiff < 5 { // Close in leaderboard position
+					correlations[p1.GetID()][p2.GetID()] = 0.2
+				} else if positionDiff < 20 { // Somewhat close
+					correlations[p1.GetID()][p2.GetID()] = 0.05
+				}
+			}
+		}
+	}
+	
 	return correlations
 }
 
