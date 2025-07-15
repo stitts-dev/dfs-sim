@@ -152,6 +152,31 @@ func (h *GatewayHub) Run() {
 
 // HandleOptimizationProgress handles WebSocket connections for optimization progress
 func (h *GatewayHub) HandleOptimizationProgress(c *gin.Context) {
+	h.handleWebSocketConnection(c, "optimization_progress")
+}
+
+// HandleAIRecommendations handles WebSocket connections for AI recommendations
+func (h *GatewayHub) HandleAIRecommendations(c *gin.Context) {
+	h.handleWebSocketConnection(c, "ai_recommendations")
+}
+
+// HandleRealtimeEvents handles WebSocket connections for real-time events
+func (h *GatewayHub) HandleRealtimeEvents(c *gin.Context) {
+	h.handleWebSocketConnection(c, "realtime_events")
+}
+
+// HandleLateSwapNotifications handles WebSocket connections for late swap notifications
+func (h *GatewayHub) HandleLateSwapNotifications(c *gin.Context) {
+	h.handleWebSocketConnection(c, "lateswap_notifications")
+}
+
+// HandleAlertNotifications handles WebSocket connections for alert notifications
+func (h *GatewayHub) HandleAlertNotifications(c *gin.Context) {
+	h.handleWebSocketConnection(c, "alert_notifications")
+}
+
+// handleWebSocketConnection is a helper method that handles common WebSocket connection logic
+func (h *GatewayHub) handleWebSocketConnection(c *gin.Context, connectionType string) {
 	userID := c.Param("user_id")
 	if userID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID required"})
@@ -161,7 +186,7 @@ func (h *GatewayHub) HandleOptimizationProgress(c *gin.Context) {
 	// Upgrade HTTP connection to WebSocket
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		h.logger.WithError(err).Error("Failed to upgrade WebSocket connection")
+		h.logger.WithError(err).WithField("connection_type", connectionType).Error("Failed to upgrade WebSocket connection")
 		return
 	}
 
@@ -176,6 +201,12 @@ func (h *GatewayHub) HandleOptimizationProgress(c *gin.Context) {
 
 	// Register client
 	h.register <- client
+
+	h.logger.WithFields(logrus.Fields{
+		"user_id":         userID,
+		"client_id":       client.ID,
+		"connection_type": connectionType,
+	}).Info("WebSocket connection established")
 
 	// Start goroutines for handling read/write
 	go client.writePump()
@@ -214,6 +245,54 @@ func (h *GatewayHub) SendOptimizationProgress(userID string, progress Optimizati
 		Type:      "optimization_progress",
 		UserID:    userID,
 		Data:      progress,
+		Timestamp: getCurrentTimestamp(),
+	}
+
+	h.SendToUser(userID, message)
+}
+
+// SendRealtimeEvent sends a real-time event to a specific user
+func (h *GatewayHub) SendRealtimeEvent(userID string, event interface{}) {
+	message := Message{
+		Type:      "realtime_event",
+		UserID:    userID,
+		Data:      event,
+		Timestamp: getCurrentTimestamp(),
+	}
+
+	h.SendToUser(userID, message)
+}
+
+// SendLateSwapNotification sends a late swap notification to a specific user
+func (h *GatewayHub) SendLateSwapNotification(userID string, notification interface{}) {
+	message := Message{
+		Type:      "lateswap_notification",
+		UserID:    userID,
+		Data:      notification,
+		Timestamp: getCurrentTimestamp(),
+	}
+
+	h.SendToUser(userID, message)
+}
+
+// SendAlertNotification sends an alert notification to a specific user
+func (h *GatewayHub) SendAlertNotification(userID string, alert interface{}) {
+	message := Message{
+		Type:      "alert_notification",
+		UserID:    userID,
+		Data:      alert,
+		Timestamp: getCurrentTimestamp(),
+	}
+
+	h.SendToUser(userID, message)
+}
+
+// SendAIRecommendation sends an AI recommendation to a specific user
+func (h *GatewayHub) SendAIRecommendation(userID string, recommendation interface{}) {
+	message := Message{
+		Type:      "ai_recommendation",
+		UserID:    userID,
+		Data:      recommendation,
 		Timestamp: getCurrentTimestamp(),
 	}
 

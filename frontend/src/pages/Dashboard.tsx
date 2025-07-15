@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/auth'
 import { env, getFallbackSports, debugLog } from '@/lib/env'
 import UsageTracker from '@/components/UsageTracker'
 import OnboardingWizard from '@/components/OnboardingWizard'
+import { RealtimeDashboard } from '@/components/realtime'
 
 export default function Dashboard() {
   const { beginnerMode, loadUserPreferences, preferredSports, tutorialProgress } = usePreferencesStore()
@@ -208,8 +209,9 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-          <div>
+          <div className="space-y-6">
             <UsageTracker variant="dashboard" showUpgradeButton />
+            <RealtimeDashboard className="lg:sticky lg:top-6" />
           </div>
         </div>
       ) : (
