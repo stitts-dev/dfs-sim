@@ -1,19 +1,14 @@
-# Execute PRP with Git Worktree Workflow
+# Execute PRP
 
-Implement a feature using the PRP file with git worktrees for parallel development, enabling simultaneous frontend/backend work.
+Implement a feature using the PRP file.
 
 ## PRP File: $ARGUMENTS
 
-## Enhanced Execution Process
+## Execution Process
 
-### 1. **Pre-execution Setup & Worktree Creation**
-   - Parse PRP filename to generate meaningful branch name (e.g., `prp/ai-recommendations-fix`)
-   - Ensure main branch is up to date: `git fetch origin main`
-   - Create new feature branch: `git checkout -b prp/[feature-name] origin/main`
-   - Create dedicated worktree directory: `git worktree add ../[project-name]-prp-[feature-name] prp/[feature-name]`
-   - Switch to new worktree: `cd ../[project-name]-prp-[feature-name]`
-   - Mark PRP as in-progress (add execution timestamp and branch info to PRP metadata)
-   - Confirm worktree creation and initial state
+### 1. **Pre-execution Setup**
+   - Mark PRP as in-progress (add execution timestamp to PRP metadata)
+   - Confirm initial state and requirements
 
 ### 2. **Load PRP & Deep Analysis**
    - Read the specified PRP file thoroughly
@@ -23,179 +18,68 @@ Implement a feature using the PRP file with git worktrees for parallel developme
    - Do more web searches and codebase exploration as needed
    - Identify dependencies and integration points with existing code
 
-### 3. **ULTRATHINK & Git Strategy Planning**
+### 3. **ULTRATHINK & Planning**
    - Think hard before executing the plan. Create a comprehensive implementation strategy
    - Break down complex tasks into smaller, manageable steps using TodoWrite tool
-   - Plan commit strategy: identify logical commit boundaries for incremental progress
    - Use the TodoWrite tool to create and track your implementation plan
    - Identify implementation patterns from existing code to follow
    - Plan validation strategy and testing approach
    - Consider rollback scenarios and risk mitigation
 
-### 4. **Execute the Plan with Incremental Commits**
+### 4. **Execute the Plan**
    - Execute the PRP systematically following the planned approach
    - Implement all code changes with high quality and attention to detail
-   - Make incremental commits at logical milestones to maintain clean git history
-   - Use descriptive commit messages following project conventions
-   - Ensure each commit represents a working state when possible
    - Handle errors gracefully and adapt plan as needed
 
 ### 5. **Comprehensive Validation**
    - Run each validation command specified in the PRP
    - Execute full test suite: unit tests, integration tests, linting
    - Fix any failures immediately and re-run until all pass
-   - Verify no uncommitted changes: `git status` should be clean
    - Test edge cases and error scenarios
    - Validate all PRP requirements and success criteria are met
    - Double-check PRP compliance by re-reading requirements
 
-### 6. **Final Commit & Branch Preparation**
-   - Stage all final changes: `git add .`
-   - Create comprehensive final commit with PRP completion message
-   - Use commit message format: `feat: implement [PRP-TITLE] - [brief description]`
-   - Include reference to PRP file and key improvements in commit body
-   - Verify git log shows clean, logical progression of changes
-   - Ensure branch is ready for review and merge
-
-### 7. **Push & Pull Request Creation**
-   - Push feature branch to remote: `git push -u origin prp/[feature-name]`
-   - Create pull request using GitHub CLI with comprehensive description:
-     ```bash
-     gh pr create --title "PRP: [PRP-TITLE]" --body "$(cat <<'EOF'
-     ## PRP Implementation: [PRP-TITLE]
-     
-     **PRP File**: [path-to-prp]
-     **Branch**: prp/[feature-name]
-     
-     ## Summary
-     [3-5 bullet points of key changes and improvements]
-     
-     ## Implementation Details
-     [Brief technical overview of approach taken]
-     
-     ## Testing & Validation
-     - [ ] All unit tests passing
-     - [ ] Integration tests passing  
-     - [ ] Linting and code quality checks passed
-     - [ ] PRP requirements fully implemented
-     - [ ] Manual testing completed
-     
-     ## Success Metrics
-     [List key metrics/criteria from PRP that were achieved]
-     
-     ## Files Changed
-     [Brief overview of major files modified/added]
-     
-     🤖 Generated with [Claude Code](https://claude.ai/code)
-     
-     Closes: [PRP-file-reference]
-     EOF
-     )"
-     ```
-
-### 8. **PRP Lifecycle Management & Worktree Cleanup**
-   - Create executed PRPs directory if it doesn't exist: `mkdir -p PRPs/executed`
-   - Move PRP file to executed folder: `mv [prp-path] PRPs/executed/`
-   - Create execution metadata file `PRPs/executed/[prp-name].meta.json`:
+### 6. **PRP Lifecycle Management**
+   - Create executed PRPs directory if it doesn't exist: `mkdir -p @/executed`
+   - Move PRP file to executed folder: `mv [prp-path] @/executed/`
+   - If there's an associated PRD file, move it to `@/old/` directory
+   - Create execution metadata file `@/executed/[prp-name].meta.json`:
      ```json
      {
        "prp_name": "[prp-title]",
        "executed_at": "[timestamp]",
-       "branch": "prp/[feature-name]",
-       "worktree_path": "../[project-name]-prp-[feature-name]",
-       "pr_url": "[github-pr-url]",
        "executor": "claude-code",
        "status": "completed",
        "validation_status": "all_passed"
      }
      ```
-   - Commit PRP lifecycle changes: `git add PRPs/ && git commit -m "docs: mark [PRP-TITLE] as executed"`
-   - Push lifecycle changes: `git push`
-   - **Keep worktree active** for continued development or quick fixes
-   - To cleanup later: `git worktree remove ../[project-name]-prp-[feature-name]` (after merge)
 
-### 9. **Completion Report & Handoff**
+### 7. **Completion Report & Handoff**
    - Provide comprehensive completion report including:
      - ✅ PRP execution status and all requirements met
-     - 🔗 Pull Request URL for review
      - 📊 Key metrics achieved vs. PRP success criteria
      - 🧪 Validation results summary (tests, linting, manual verification)
      - 📁 Files changed and major code areas affected
      - ⚡ Performance improvements or notable technical achievements
-     - 🔄 Next steps for code review and merge process
+     - 🔄 Next steps for further development or integration
    - Confirm all TodoWrite items are marked complete
    - Re-read PRP one final time to ensure 100% compliance
    - Provide clear handoff for human reviewer
 
-### 10. **Reference & Support**
-   - PRP file moved to `PRPs/executed/` for future reference
-   - Branch and worktree remain available for continued development
-   - All implementation details documented in PR description
+### 8. **Reference & Support**
+   - PRP file moved to `@/executed/` for future reference
    - You can always reference the executed PRP or original requirements
-   - **Parallel Development**: Multiple worktrees can exist simultaneously for different PRPs
-   - **Worktree Management**: Use `git worktree list` to see all active worktrees
 
-## Git Worktree Workflow Requirements
-
-- **Branch Naming**: Use `prp/[descriptive-kebab-case-name]` format
-- **Worktree Naming**: Use `../[project-name]-prp-[feature-name]` format
-- **Commit Messages**: Follow conventional commits (feat:, fix:, docs:, etc.)
-- **PR Title**: Use "PRP: [Original PRP Title]" format
-- **Clean History**: Logical, incremental commits with clear progression
-- **Testing**: All tests must pass before PR creation
-- **Documentation**: PR description must be comprehensive and self-explanatory
-- **Parallel Work**: Each PRP gets its own worktree for simultaneous development
-- **Isolation**: Worktrees are completely isolated - no conflicts between concurrent PRPs
-
-## Worktree Management Commands
-
-### Common Worktree Operations
-```bash
-# List all active worktrees
-git worktree list
-
-# Create new worktree for PRP
-git worktree add ../fun-prp-feature-name prp/feature-name
-
-# Switch between worktrees
-cd ../fun-prp-feature-name
-
-# Remove completed worktree (after merge)
-git worktree remove ../fun-prp-feature-name
-
-# Prune stale worktree references
-git worktree prune
-```
-
-### Parallel Development Example
-```bash
-# Terminal 1: Frontend PRP
-cd ../fun-prp-frontend-optimization
-npm run dev
-
-# Terminal 2: Backend PRP  
-cd ../fun-prp-api-improvements
-go run cmd/server/main.go
-
-# Terminal 3: Original repo for monitoring
-cd fun
-git worktree list
-```
 
 ## Error Handling & Recovery
 
-- If validation fails, fix issues within the worktree and re-run validation
+- If validation fails, fix issues and re-run validation
 - Use error patterns in PRP to guide troubleshooting approach
-- If major issues arise, document in PR and request guidance
-- Maintain clean git history even during error recovery within the worktree
-- Never force push or rewrite shared branch history
-- Worktree isolation prevents conflicts between concurrent development streams
+- If major issues arise, document and request guidance
 
 ## Success Criteria
 
 - ✅ All PRP requirements implemented and validated
-- ✅ Clean git history with meaningful commits
-- ✅ Comprehensive PR created with detailed description
 - ✅ All tests passing and validation complete
 - ✅ PRP moved to executed status with metadata
-- ✅ Ready for human code review and merge
+- ✅ Ready for further development or integration

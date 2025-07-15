@@ -57,6 +57,12 @@ uv run pytest tests/ -v
 ## Output
 Save as: `PRPs/{feature-name}.md`
 
+## Post-Processing
+After generating the PRP:
+1. Move the processed PRD file to `@/old/` directory
+2. Create `@/old/` directory if it doesn't exist
+3. Archive PRD with timestamp for reference
+
 ## Quality Checklist
 - [ ] All necessary context included
 - [ ] Validation gates are executable by AI
