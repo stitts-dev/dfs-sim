@@ -211,16 +211,17 @@ func AssignPlayersToSlots(players []types.Player, slots []PositionSlot) ([]SlotA
 
 		// Try to find an unassigned player that can fill this slot
 		for _, player := range players {
-			if assignedPlayers[player.ID] {
+			playerID := uint(player.ID.ID())
+			if assignedPlayers[playerID] {
 				continue
 			}
 
 			if CanPlayerFillSlot(player, slot) {
 				assignments = append(assignments, SlotAssignment{
-					PlayerID: player.ID,
+					PlayerID: playerID,
 					SlotName: slot.SlotName,
 				})
-				assignedPlayers[player.ID] = true
+				assignedPlayers[playerID] = true
 				assigned = true
 				break
 			}

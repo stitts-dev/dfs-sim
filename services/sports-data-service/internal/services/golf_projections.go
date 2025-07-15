@@ -15,13 +15,34 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// CutProbabilityEngineInterface defines the interface for cut probability calculations
+type CutProbabilityEngineInterface interface {
+	CalculateCutProbability(ctx context.Context, playerID, tournamentID, courseID string, fieldStrength float64) (*CutProbabilityResult, error)
+	BatchCalculateCutProbabilities(ctx context.Context, playerIDs []string, tournamentID, courseID string, fieldStrength float64) ([]*CutProbabilityResult, error)
+}
+
+// CutProbabilityResult represents the result of cut probability calculation
+type CutProbabilityResult struct {
+	PlayerID           string
+	TournamentID       string
+	BaseCutProb        float64
+	CourseCutProb      float64
+	WeatherAdjusted    float64
+	FinalCutProb       float64
+	Confidence         float64
+	FieldStrengthAdj   float64
+	RecentFormAdj      float64
+	CalculatedAt       time.Time
+}
+
 // GolfProjectionService handles golf-specific player projections
 type GolfProjectionService struct {
-	db             *database.DB
-	cache          *CacheService
-	logger         *logrus.Logger
-	golfProvider   *providers.ESPNGolfClient
-	weatherService *WeatherService
+	db                   *database.DB
+	cache                *CacheService
+	logger               *logrus.Logger
+	golfProvider         *providers.ESPNGolfClient
+	weatherService       *WeatherService
+	cutProbabilityEngine CutProbabilityEngineInterface
 }
 
 // NewGolfProjectionService creates a new golf projection service
@@ -41,6 +62,11 @@ func NewGolfProjectionService(
 // SetWeatherService sets the weather service for weather-adjusted projections
 func (gps *GolfProjectionService) SetWeatherService(ws *WeatherService) {
 	gps.weatherService = ws
+}
+
+// SetCutProbabilityEngine sets the cut probability engine for advanced cut predictions
+func (gps *GolfProjectionService) SetCutProbabilityEngine(engine CutProbabilityEngineInterface) {
+	gps.cutProbabilityEngine = engine
 }
 
 // GenerateProjections generates projections for golf players in a tournament
@@ -116,18 +142,67 @@ func (gps *GolfProjectionService) generatePlayerProjection(
 		projection.Confidence += 0.1
 	}
 
-	// Weather adjustment
-	if gps.weatherService != nil && tournament.WeatherConditions.WindSpeed > 0 {
-		weatherImpact := gps.calculateWeatherImpact(tournament.WeatherConditions)
-		projection.ExpectedScore *= weatherImpact
+	// Enhanced weather adjustment using weather service
+	if gps.weatherService != nil {
+		// Get current weather conditions for the course
+		if weather, err := gps.weatherService.GetWeatherConditions(context.Background(), tournament.CourseID); err == nil {
+			weatherImpact := gps.weatherService.CalculateGolfImpact(weather)
+			
+			// Apply weather impact to expected score
+			projection.ExpectedScore += weatherImpact.ScoreImpact
+			
+			// Store weather advantage scores
+			projection.WeatherAdvantage = weatherImpact.WindAdvantage
+			projection.TeeTimeAdvantage = weatherImpact.TeeTimeAdvantage
+			projection.WeatherImpactScore = weatherImpact.ScoreImpact
+			
+			gps.logger.Debugf("Applied weather impact for player %s: score_impact=%.2f, wind_advantage=%.3f", 
+				player.GetID(), weatherImpact.ScoreImpact, weatherImpact.WindAdvantage)
+		} else {
+			gps.logger.Warnf("Failed to get weather conditions for course %s: %v", tournament.CourseID, err)
+		}
 	}
 
-	// Calculate probabilities
-	// TODO: Update these methods to accept PlayerInterface instead of Player
-	projection.CutProbability = 0.7  // Default value for now
-	projection.Top10Probability = 0.1
-	projection.Top25Probability = 0.25
-	projection.WinProbability = 0.02
+	// Enhanced cut probability calculation using cut probability engine
+	if gps.cutProbabilityEngine != nil {
+		if cutResult, err := gps.cutProbabilityEngine.CalculateCutProbability(
+			context.Background(), 
+			player.GetID().String(), 
+			tournament.ID.String(), 
+			tournament.CourseID, 
+			tournament.FieldStrength,
+		); err == nil {
+			projection.BaseCutProbability = cutResult.BaseCutProb
+			projection.CourseCutProbability = cutResult.CourseCutProb
+			projection.WeatherAdjustedCut = cutResult.WeatherAdjusted
+			projection.FinalCutProbability = cutResult.FinalCutProb
+			projection.CutConfidence = cutResult.Confidence
+			
+			gps.logger.Debugf("Calculated cut probability for player %s: final=%.3f, confidence=%.3f", 
+				player.GetID(), cutResult.FinalCutProb, cutResult.Confidence)
+		} else {
+			gps.logger.Warnf("Failed to calculate cut probability for player %s: %v", player.GetID(), err)
+			// Fallback to simple calculation
+			projection.FinalCutProbability = gps.calculateSimpleCutProbability(player, tournament)
+		}
+	} else {
+		// Fallback to simple calculation if engine not available
+		projection.FinalCutProbability = gps.calculateSimpleCutProbability(player, tournament)
+	}
+
+	// Calculate position probabilities based on cut probability and skill level
+	projection.Top5Probability = gps.calculatePositionProbability(player, tournament, projection.FinalCutProbability, 5)
+	projection.Top10Probability = gps.calculatePositionProbability(player, tournament, projection.FinalCutProbability, 10)
+	projection.Top25Probability = gps.calculatePositionProbability(player, tournament, projection.FinalCutProbability, 25)
+	projection.WinProbability = gps.calculatePositionProbability(player, tournament, projection.FinalCutProbability, 1)
+
+	// Calculate expected finish position
+	projection.ExpectedFinishPosition = gps.calculateExpectedFinish(player, tournament, projection.FinalCutProbability)
+	
+	// Calculate strategy-specific scores
+	projection.StrategyFitScore = gps.calculateStrategyFit(projection)
+	projection.RiskRewardRatio = gps.calculateRiskReward(projection)
+	projection.VarianceScore = gps.calculateVarianceScore(player, projection)
 
 	// Calculate DFS points
 	projection.DKPoints = gps.calculateDKPoints(projection, tournament)
@@ -488,4 +563,156 @@ func (gps *GolfProjectionService) CalculateCutProbability(ctx context.Context, e
 	}
 
 	return 0.2
+}
+
+// calculateSimpleCutProbability provides a fallback cut probability calculation
+func (gps *GolfProjectionService) calculateSimpleCutProbability(player types.PlayerInterface, tournament *models.GolfTournament) float64 {
+	baseProbability := 0.5 // Start at 50%
+
+	// Adjust based on player salary (proxy for ranking/skill)
+	salary := player.GetSalaryDK()
+	if salary == 0 {
+		salary = player.GetSalaryFD()
+	}
+	
+	if salary > 10000 {
+		baseProbability += 0.2
+	} else if salary > 8000 {
+		baseProbability += 0.1
+	} else if salary < 6000 {
+		baseProbability -= 0.1
+	}
+
+	// Field strength adjustment
+	if tournament.FieldStrength > 1.2 {
+		baseProbability -= 0.1 // Stronger field = harder cuts
+	} else if tournament.FieldStrength < 0.8 {
+		baseProbability += 0.1 // Weaker field = easier cuts
+	}
+
+	return math.Max(0.1, math.Min(0.95, baseProbability))
+}
+
+// calculatePositionProbability calculates probability of finishing in top N positions
+func (gps *GolfProjectionService) calculatePositionProbability(player types.PlayerInterface, tournament *models.GolfTournament, cutProb float64, position int) float64 {
+	if cutProb < 0.3 {
+		return 0.01 // Very unlikely to achieve good finish if unlikely to make cut
+	}
+
+	// Base probability varies by position difficulty
+	var baseProbability float64
+	switch position {
+	case 1: // Win
+		baseProbability = 0.02
+	case 5: // Top 5
+		baseProbability = 0.08
+	case 10: // Top 10
+		baseProbability = 0.15
+	case 25: // Top 25
+		baseProbability = 0.35
+	default:
+		baseProbability = 0.1
+	}
+
+	// Adjust based on player salary/skill
+	salary := player.GetSalaryDK()
+	if salary == 0 {
+		salary = player.GetSalaryFD()
+	}
+
+	skillMultiplier := 1.0
+	if salary > 11000 {
+		skillMultiplier = 2.0
+	} else if salary > 9000 {
+		skillMultiplier = 1.5
+	} else if salary < 7000 {
+		skillMultiplier = 0.5
+	}
+
+	// Factor in cut probability - can't finish well without making cut
+	adjustedProb := baseProbability * skillMultiplier * (cutProb / 0.7)
+
+	return math.Max(0.001, math.Min(0.5, adjustedProb))
+}
+
+// calculateExpectedFinish calculates expected finish position
+func (gps *GolfProjectionService) calculateExpectedFinish(player types.PlayerInterface, tournament *models.GolfTournament, cutProb float64) float64 {
+	// Base expected finish based on skill level
+	salary := player.GetSalaryDK()
+	if salary == 0 {
+		salary = player.GetSalaryFD()
+	}
+
+	var baseFinish float64
+	if salary > 11000 {
+		baseFinish = 15.0 // Elite players
+	} else if salary > 9000 {
+		baseFinish = 30.0 // Very good players
+	} else if salary > 7000 {
+		baseFinish = 50.0 // Good players
+	} else {
+		baseFinish = 75.0 // Average to below average players
+	}
+
+	// Adjust for cut probability
+	if cutProb < 0.5 {
+		baseFinish += 30.0 // Likely to miss cut or finish poorly
+	} else if cutProb > 0.8 {
+		baseFinish -= 10.0 // Very likely to make cut
+	}
+
+	// Field strength adjustment
+	baseFinish *= tournament.FieldStrength
+
+	return math.Max(1.0, baseFinish)
+}
+
+// calculateStrategyFit calculates how well a player fits different strategies
+func (gps *GolfProjectionService) calculateStrategyFit(projection *models.GolfProjection) float64 {
+	// Strategy fit is based on balance of cut probability, upside, and consistency
+	cutWeight := 0.4
+	upsideWeight := 0.3
+	consistencyWeight := 0.3
+
+	cutScore := projection.FinalCutProbability
+	upsideScore := (projection.Top5Probability + projection.Top10Probability) / 2.0
+	consistencyScore := 1.0 - projection.VarianceScore/20.0 // Normalize variance
+
+	return cutWeight*cutScore + upsideWeight*upsideScore + consistencyWeight*consistencyScore
+}
+
+// calculateRiskReward calculates risk/reward ratio for a player
+func (gps *GolfProjectionService) calculateRiskReward(projection *models.GolfProjection) float64 {
+	// Risk/reward is ratio of upside potential to downside risk
+	upside := projection.Top10Probability + (projection.WinProbability * 2.0)
+	downside := 1.0 - projection.FinalCutProbability
+
+	if downside == 0 {
+		return upside * 10.0 // Very high ratio if no downside risk
+	}
+
+	return upside / downside
+}
+
+// calculateVarianceScore calculates variance/volatility score for a player
+func (gps *GolfProjectionService) calculateVarianceScore(player types.PlayerInterface, projection *models.GolfProjection) float64 {
+	// Variance based on salary tier and probability spread
+	salary := player.GetSalaryDK()
+	if salary == 0 {
+		salary = player.GetSalaryFD()
+	}
+
+	// Higher salary players tend to have lower variance (more consistent)
+	baseVariance := 15.0
+	if salary > 10000 {
+		baseVariance = 12.0
+	} else if salary < 7000 {
+		baseVariance = 18.0
+	}
+
+	// Adjust based on probability spread
+	probabilitySpread := projection.Top5Probability - projection.FinalCutProbability + 0.5
+	variance := baseVariance * probabilitySpread
+
+	return math.Max(5.0, math.Min(25.0, variance))
 }

@@ -190,13 +190,33 @@ type GolfProjection struct {
 	PlayerID         string  `json:"player_id"`
 	TournamentID     string  `json:"tournament_id"`
 	ExpectedScore    float64 `json:"expected_score"`
-	CutProbability   float64 `json:"cut_probability"`
-	Top10Probability float64 `json:"top10_probability"`
-	Top25Probability float64 `json:"top25_probability"`
-	WinProbability   float64 `json:"win_probability"`
 	DKPoints         float64 `json:"dk_points"`
 	FDPoints         float64 `json:"fd_points"`
 	Confidence       float64 `json:"confidence"`
+
+	// Cut probability modeling
+	BaseCutProbability      float64 `json:"base_cut_probability"`
+	CourseCutProbability    float64 `json:"course_cut_probability"`
+	WeatherAdjustedCut      float64 `json:"weather_adjusted_cut"`
+	FinalCutProbability     float64 `json:"final_cut_probability"`
+	CutConfidence          float64 `json:"cut_confidence"`
+	
+	// Position probabilities
+	Top5Probability        float64 `json:"top5_probability"`
+	Top10Probability       float64 `json:"top10_probability"`
+	Top25Probability       float64 `json:"top25_probability"`
+	WinProbability         float64 `json:"win_probability"`
+	ExpectedFinishPosition float64 `json:"expected_finish_position"`
+	
+	// Weather impact
+	WeatherAdvantage       float64 `json:"weather_advantage"`
+	TeeTimeAdvantage      float64 `json:"tee_time_advantage"`
+	WeatherImpactScore    float64 `json:"weather_impact_score"`
+	
+	// Strategy-specific scores
+	StrategyFitScore      float64 `json:"strategy_fit_score"`
+	RiskRewardRatio       float64 `json:"risk_reward_ratio"`
+	VarianceScore         float64 `json:"variance_score"`
 }
 
 // HoleScore represents the score for a single hole

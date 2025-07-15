@@ -25,11 +25,12 @@ func NewCorrelationMatrix(players []types.Player) *CorrelationMatrix {
 
 	// Organize players
 	for _, player := range players {
-		cm.byTeam[player.Team] = append(cm.byTeam[player.Team], player.ID)
-		cm.byPosition[player.Position] = append(cm.byPosition[player.Position], player.ID)
+		playerID := uint(player.ID.ID())
+		cm.byTeam[player.Team] = append(cm.byTeam[player.Team], playerID)
+		cm.byPosition[player.Position] = append(cm.byPosition[player.Position], playerID)
 
 		gameKey := getGameKey(player.Team, player.Opponent)
-		cm.byGame[gameKey] = append(cm.byGame[gameKey], player.ID)
+		cm.byGame[gameKey] = append(cm.byGame[gameKey], playerID)
 	}
 
 	// Calculate correlations
@@ -41,27 +42,29 @@ func NewCorrelationMatrix(players []types.Player) *CorrelationMatrix {
 func (cm *CorrelationMatrix) calculateCorrelations(players []types.Player) {
 	playerMap := make(map[uint]types.Player)
 	for _, p := range players {
-		playerMap[p.ID] = p
+		playerMap[uint(p.ID.ID())] = p
 	}
 
 	// Calculate correlations for each player pair
 	for i := 0; i < len(players); i++ {
 		p1 := players[i]
 
-		if cm.correlations[p1.ID] == nil {
-			cm.correlations[p1.ID] = make(map[uint]float64)
+		p1ID := uint(p1.ID.ID())
+		if cm.correlations[p1ID] == nil {
+			cm.correlations[p1ID] = make(map[uint]float64)
 		}
 
 		for j := i + 1; j < len(players); j++ {
 			p2 := players[j]
 
-			if cm.correlations[p2.ID] == nil {
-				cm.correlations[p2.ID] = make(map[uint]float64)
+			p2ID := uint(p2.ID.ID())
+			if cm.correlations[p2ID] == nil {
+				cm.correlations[p2ID] = make(map[uint]float64)
 			}
 
 			corr := cm.calculatePairCorrelation(p1, p2)
-			cm.correlations[p1.ID][p2.ID] = corr
-			cm.correlations[p2.ID][p1.ID] = corr
+			cm.correlations[p1ID][p2ID] = corr
+			cm.correlations[p2ID][p1ID] = corr
 		}
 	}
 }
@@ -71,14 +74,23 @@ func (cm *CorrelationMatrix) calculatePairCorrelation(p1, p2 types.Player) float
 
 	// Same team correlation (teammates)
 	if p1.Team == p2.Team {
-		correlation += cm.getTeammateCorrelation(p1.Position, p2.Position, p1.Sport)
+		// Use sport name from position - golf players are "G"
+		sport := "golf" // Default to golf for now, could be enhanced
+		if p1.Position != "G" {
+			sport = "nba" // Simple heuristic for other sports
+		}
+		correlation += cm.getTeammateCorrelation(p1.Position, p2.Position, sport)
 	}
 
 	// Same game correlation
 	if getGameKey(p1.Team, p1.Opponent) == getGameKey(p2.Team, p2.Opponent) {
 		if p1.Team != p2.Team {
 			// Opponents
-			correlation += cm.getOpponentCorrelation(p1.Position, p2.Position, p1.Sport)
+			sport := "golf" // Default to golf for now
+			if p1.Position != "G" {
+				sport = "nba" // Simple heuristic for other sports
+			}
+			correlation += cm.getOpponentCorrelation(p1.Position, p2.Position, sport)
 		}
 	}
 
@@ -168,6 +180,12 @@ func (cm *CorrelationMatrix) getNHLTeammateCorrelation(pos1, pos2 string) float6
 	return 0.2
 }
 
+func (cm *CorrelationMatrix) getGolfTeammateCorrelation(pos1, pos2 string) float64 {
+	// Golf players don't have traditional teammates, but can have course/tee time correlations
+	// Return small positive correlation for similar tee times/conditions
+	return 0.1
+}
+
 func (cm *CorrelationMatrix) getOpponentCorrelation(pos1, pos2, sport string) float64 {
 	switch sport {
 	case "nba":
@@ -206,6 +224,12 @@ func (cm *CorrelationMatrix) getOpponentCorrelation(pos1, pos2, sport string) fl
 	}
 }
 
+func (cm *CorrelationMatrix) getGolfOpponentCorrelation(pos1, pos2 string) float64 {
+	// Golf doesn't have direct opponents like other sports
+	// Return small positive correlation for playing in same tournament conditions
+	return 0.05
+}
+
 // GetCorrelation returns the correlation between two players
 func (cm *CorrelationMatrix) GetCorrelation(player1ID, player2ID uint) float64 {
 	if player1ID == player2ID {
@@ -223,7 +247,7 @@ func (cm *CorrelationMatrix) GetCorrelation(player1ID, player2ID uint) float64 {
 func (cm *CorrelationMatrix) GetTeammates(playerID uint, players []types.Player) []uint {
 	var playerTeam string
 	for _, p := range players {
-		if p.ID == playerID {
+		if uint(p.ID.ID()) == playerID {
 			playerTeam = p.Team
 			break
 		}
@@ -243,7 +267,7 @@ func (cm *CorrelationMatrix) GetTeammates(playerID uint, players []types.Player)
 func (cm *CorrelationMatrix) GetGamePartners(playerID uint, players []types.Player) []uint {
 	var gameKey string
 	for _, p := range players {
-		if p.ID == playerID {
+		if uint(p.ID.ID()) == playerID {
 			gameKey = getGameKey(p.Team, p.Opponent)
 			break
 		}
@@ -271,7 +295,9 @@ func (cm *CorrelationMatrix) CalculateLineupCorrelation(lineup []types.Player) f
 	// Sum all pairwise correlations
 	for i := 0; i < len(lineup); i++ {
 		for j := i + 1; j < len(lineup); j++ {
-			corr := cm.GetCorrelation(lineup[i].ID, lineup[j].ID)
+			player1ID := uint(lineup[i].ID.ID())
+			player2ID := uint(lineup[j].ID.ID())
+			corr := cm.GetCorrelation(player1ID, player2ID)
 			totalCorrelation += corr
 			count++
 		}

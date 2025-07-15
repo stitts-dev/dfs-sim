@@ -40,7 +40,8 @@ func GetConstraintsForContest(contest *types.Contest) *LineupConstraints {
 	}
 
 	// Set position constraints based on sport and platform
-	switch contest.Sport {
+	sportName := getSportNameFromID(contest.SportID)
+	switch sportName {
 	case "nba":
 		constraints.setupNBAConstraints(contest.Platform)
 	case "nfl":

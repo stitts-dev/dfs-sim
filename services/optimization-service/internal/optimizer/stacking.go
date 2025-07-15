@@ -246,10 +246,10 @@ func (sb *StackBuilder) buildQBStacks() []Stack {
 				Type:            TeamStack,
 				Players:         []types.Player{qb, teammate},
 				Team:            qb.Team,
-				TotalSalary:     qb.Salary + teammate.Salary,
+				TotalSalary:     getPlayerSalary(qb) + getPlayerSalary(teammate),
 				ProjectedPoints: qb.ProjectedPoints + teammate.ProjectedPoints,
 			}
-			stack.CorrelationScore = sb.correlations.GetCorrelation(qb.ID, teammate.ID)
+			stack.CorrelationScore = sb.correlations.GetCorrelation(uint(qb.ID.ID()), uint(teammate.ID.ID()))
 			stacks = append(stacks, stack)
 		}
 
@@ -261,7 +261,7 @@ func (sb *StackBuilder) buildQBStacks() []Stack {
 						Type:            TeamStack,
 						Players:         []types.Player{qb, teammates[i], teammates[j]},
 						Team:            qb.Team,
-						TotalSalary:     qb.Salary + teammates[i].Salary + teammates[j].Salary,
+						TotalSalary:     getPlayerSalary(qb) + getPlayerSalary(teammates[i]) + getPlayerSalary(teammates[j]),
 						ProjectedPoints: qb.ProjectedPoints + teammates[i].ProjectedPoints + teammates[j].ProjectedPoints,
 					}
 					stack.CorrelationScore = sb.correlations.CalculateLineupCorrelation(stack.Players)
@@ -284,7 +284,7 @@ func (sb *StackBuilder) buildQBStacks() []Stack {
 					Type:            GameStack,
 					Players:         []types.Player{qb, teammate, opp},
 					Game:            getGameKey(qb.Team, qb.Opponent),
-					TotalSalary:     qb.Salary + teammate.Salary + opp.Salary,
+					TotalSalary:     getPlayerSalary(qb) + getPlayerSalary(teammate) + getPlayerSalary(opp),
 					ProjectedPoints: qb.ProjectedPoints + teammate.ProjectedPoints + opp.ProjectedPoints,
 				}
 				stack.CorrelationScore = sb.correlations.CalculateLineupCorrelation(stack.Players)
@@ -309,7 +309,7 @@ func (sb *StackBuilder) buildRBDefenseStacks() []Stack {
 						Type:            MiniStack,
 						Players:         []types.Player{player, def},
 						Team:            player.Team,
-						TotalSalary:     player.Salary + def.Salary,
+						TotalSalary:     getPlayerSalary(player) + getPlayerSalary(def),
 						ProjectedPoints: player.ProjectedPoints + def.ProjectedPoints,
 					}
 					stack.CorrelationScore = 0.3 // Positive game script correlation
@@ -354,7 +354,7 @@ func (sb *StackBuilder) buildNHLLineStacks() []Stack {
 						Type:            TeamStack,
 						Players:         []types.Player{c, wingers[i], wingers[j]},
 						Team:            team,
-						TotalSalary:     c.Salary + wingers[i].Salary + wingers[j].Salary,
+						TotalSalary:     getPlayerSalary(c) + getPlayerSalary(wingers[i]) + getPlayerSalary(wingers[j]),
 						ProjectedPoints: c.ProjectedPoints + wingers[i].ProjectedPoints + wingers[j].ProjectedPoints,
 					}
 					stack.CorrelationScore = 0.4 // Line mate correlation
@@ -384,7 +384,7 @@ func (sb *StackBuilder) generateTeamStacks(team string, players []types.Player, 
 			copy(stack.Players, combo)
 
 			for _, p := range combo {
-				stack.TotalSalary += p.Salary
+				stack.TotalSalary += getPlayerSalary(p)
 				stack.ProjectedPoints += p.ProjectedPoints
 			}
 
@@ -430,7 +430,7 @@ func (sb *StackBuilder) generateGameStacks(game string, players []types.Player, 
 				copy(stack.Players, combo)
 
 				for _, p := range combo {
-					stack.TotalSalary += p.Salary
+					stack.TotalSalary += getPlayerSalary(p)
 					stack.ProjectedPoints += p.ProjectedPoints
 				}
 
@@ -496,7 +496,7 @@ func (sb *StackBuilder) buildGolfCountryStacks() []Stack {
 					Type:            TeamStack, // Using TeamStack type for country
 					Team:            country,
 					Players:         []types.Player{players[i], players[j]},
-					TotalSalary:     players[i].Salary + players[j].Salary,
+					TotalSalary:     getPlayerSalary(players[i]) + getPlayerSalary(players[j]),
 					ProjectedPoints: players[i].ProjectedPoints + players[j].ProjectedPoints,
 				}
 				stack.CorrelationScore = 0.15 // Country correlation bonus
@@ -513,7 +513,7 @@ func (sb *StackBuilder) buildGolfCountryStacks() []Stack {
 							Type:            TeamStack,
 							Team:            country,
 							Players:         []types.Player{players[i], players[j], players[k]},
-							TotalSalary:     players[i].Salary + players[j].Salary + players[k].Salary,
+							TotalSalary:     getPlayerSalary(players[i]) + getPlayerSalary(players[j]) + getPlayerSalary(players[k]),
 							ProjectedPoints: players[i].ProjectedPoints + players[j].ProjectedPoints + players[k].ProjectedPoints,
 						}
 						stack.CorrelationScore = 0.20 // Slightly higher for 3-player stacks
@@ -536,9 +536,10 @@ func (sb *StackBuilder) buildGolfOwnershipStacks() []Stack {
 
 	for _, player := range sb.players {
 		if player.Position == "G" {
-			if player.Ownership > 20 {
+			ownership := getPlayerOwnership(player)
+			if ownership > 20 {
 				highOwned = append(highOwned, player)
-			} else if player.Ownership < 10 {
+			} else if ownership < 10 {
 				lowOwned = append(lowOwned, player)
 			}
 		}
@@ -548,15 +549,15 @@ func (sb *StackBuilder) buildGolfOwnershipStacks() []Stack {
 	for _, high := range highOwned {
 		for _, low := range lowOwned {
 			// Only stack if combined salary is reasonable
-			if high.Salary+low.Salary <= 18000 { // Avg 9k per player
+			if getPlayerSalary(high)+getPlayerSalary(low) <= 18000 { // Avg 9k per player
 				stack := Stack{
 					Type:            MiniStack,
 					Players:         []types.Player{high, low},
-					TotalSalary:     high.Salary + low.Salary,
+					TotalSalary:     getPlayerSalary(high) + getPlayerSalary(low),
 					ProjectedPoints: high.ProjectedPoints + low.ProjectedPoints,
 				}
 				// Bonus for ownership leverage
-				ownershipDiff := high.Ownership - low.Ownership
+				ownershipDiff := getPlayerOwnership(high) - getPlayerOwnership(low)
 				stack.CorrelationScore = 0.05 + (ownershipDiff / 100)
 				stacks = append(stacks, stack)
 			}
@@ -575,9 +576,9 @@ func (sb *StackBuilder) buildGolfValueStacks() []Stack {
 
 	for _, player := range sb.players {
 		if player.Position == "G" {
-			if player.Salary >= 10000 {
+			if getPlayerSalary(player) >= 10000 {
 				stars = append(stars, player)
-			} else if player.Salary <= 7000 {
+			} else if getPlayerSalary(player) <= 7000 {
 				scrubs = append(scrubs, player)
 			}
 		}
@@ -588,7 +589,7 @@ func (sb *StackBuilder) buildGolfValueStacks() []Stack {
 		// Find 2-3 cheap players to pair with each star
 		affordableScrubs := make([]types.Player, 0)
 		for _, scrub := range scrubs {
-			if star.Salary+scrub.Salary <= 16000 { // Leave room for others
+			if getPlayerSalary(star)+getPlayerSalary(scrub) <= 16000 { // Leave room for others
 				affordableScrubs = append(affordableScrubs, scrub)
 			}
 		}
@@ -597,7 +598,7 @@ func (sb *StackBuilder) buildGolfValueStacks() []Stack {
 		if len(affordableScrubs) >= 2 {
 			for i := 0; i < len(affordableScrubs)-1; i++ {
 				for j := i + 1; j < len(affordableScrubs); j++ {
-					totalSalary := star.Salary + affordableScrubs[i].Salary + affordableScrubs[j].Salary
+					totalSalary := getPlayerSalary(star) + getPlayerSalary(affordableScrubs[i]) + getPlayerSalary(affordableScrubs[j])
 					if totalSalary <= 23000 { // ~7.7k average
 						stack := Stack{
 							Type:            MiniStack,
@@ -606,9 +607,9 @@ func (sb *StackBuilder) buildGolfValueStacks() []Stack {
 							ProjectedPoints: star.ProjectedPoints + affordableScrubs[i].ProjectedPoints + affordableScrubs[j].ProjectedPoints,
 						}
 						// Value correlation bonus
-						valueScore := (star.ProjectedPoints/float64(star.Salary)*1000 +
-							affordableScrubs[i].ProjectedPoints/float64(affordableScrubs[i].Salary)*1000 +
-							affordableScrubs[j].ProjectedPoints/float64(affordableScrubs[j].Salary)*1000) / 3.0
+						valueScore := (star.ProjectedPoints/float64(getPlayerSalary(star))*1000 +
+							affordableScrubs[i].ProjectedPoints/float64(getPlayerSalary(affordableScrubs[i]))*1000 +
+							affordableScrubs[j].ProjectedPoints/float64(getPlayerSalary(affordableScrubs[j]))*1000) / 3.0
 						stack.CorrelationScore = valueScore * 0.1
 						stacks = append(stacks, stack)
 					}
@@ -629,4 +630,22 @@ func (sb *StackBuilder) buildGolfValueStacks() []Stack {
 		return stacks[:20]
 	}
 	return stacks
+}
+
+// getPlayerSalary returns appropriate salary based on platform
+func getPlayerSalary(player types.Player) int {
+	// Default to DraftKings, fallback to FanDuel
+	if player.SalaryDK > 0 {
+		return player.SalaryDK
+	}
+	return player.SalaryFD
+}
+
+// getPlayerOwnership returns appropriate ownership based on platform
+func getPlayerOwnership(player types.Player) float64 {
+	// Default to DraftKings, fallback to FanDuel
+	if player.OwnershipDK > 0 {
+		return player.OwnershipDK
+	}
+	return player.OwnershipFD
 }
