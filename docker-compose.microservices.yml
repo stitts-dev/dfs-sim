@@ -113,6 +113,46 @@ services:
           cpus: '2.0'
           memory: 2G
 
+  # User Service
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    container_name: dfs-user-service
+    environment:
+      - SERVICE_NAME=user
+      - PORT=8083
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/dfs_optimizer?sslmode=disable
+      - REDIS_URL=redis://redis:6379/3
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SMS_PROVIDER=${SMS_PROVIDER:-supabase}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_FROM_NUMBER=${TWILIO_FROM_NUMBER}
+      - LOG_LEVEL=info
+      - ENV=production
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8083/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    volumes:
+      - ./services/user-service/migrations:/app/migrations
+    networks:
+      - dfs-network
+    restart: unless-stopped
+
   # API Gateway
   api-gateway:
     build:
@@ -128,6 +168,7 @@ services:
       - CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:80
       - GOLF_SERVICE_URL=http://golf-service:8081
       - OPTIMIZATION_SERVICE_URL=http://optimization-service:8082
+      - USER_SERVICE_URL=http://user-service:8083
       - LOG_LEVEL=info
       - ENV=production
     ports:
@@ -136,6 +177,8 @@ services:
       golf-service:
         condition: service_healthy
       optimization-service:
+        condition: service_healthy
+      user-service:
         condition: service_healthy
       postgres:
         condition: service_healthy

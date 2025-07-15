@@ -134,6 +134,98 @@ services:
       - dfs-network
     restart: unless-stopped
 
+  # AI Recommendations Service
+  ai-recommendations-service:
+    build:
+      context: .
+      dockerfile: services/ai-recommendations-service/Dockerfile
+    container_name: dfs-ai-recommendations-service
+    environment:
+      - SERVICE_NAME=ai-recommendations
+      - PORT=8084
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379/${REDIS_AI_DB:-4}
+      - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+      - AI_RATE_LIMIT=5
+      - AI_CACHE_EXPIRATION=3600
+      - LOG_LEVEL=info
+      - ENV=production
+      # External service URLs for data aggregation
+      - GOLF_SERVICE_URL=http://sports-data-service:8081
+      - OPTIMIZATION_SERVICE_URL=http://optimization-service:8082
+      - USER_SERVICE_URL=http://user-service:8083
+    ports:
+      - "8084:8084"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - dfs-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1G
+
+  # Real-Time Service
+  realtime-service:
+    build:
+      context: .
+      dockerfile: services/realtime-service/Dockerfile
+    container_name: dfs-realtime-service
+    environment:
+      - SERVICE_NAME=realtime
+      - PORT=8085
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379/${REDIS_REALTIME_DB:-5}
+      - LOG_LEVEL=info
+      - ENV=production
+      # Real-time configuration
+      - MAX_EVENT_BUFFER_SIZE=10000
+      - EVENT_BATCH_SIZE=100
+      - EVENT_PROCESSING_INTERVAL=1s
+      - OWNERSHIP_UPDATE_INTERVAL=30s
+      - ALERT_RATE_LIMIT=50
+      - ENABLE_AUTO_SWAP=false
+      - LATE_SWAP_TIME_BUFFER=10m
+      # External service URLs for data integration
+      - GOLF_SERVICE_URL=http://sports-data-service:8081
+      - OPTIMIZATION_SERVICE_URL=http://optimization-service:8082
+      - USER_SERVICE_URL=http://user-service:8083
+      - AI_RECOMMENDATIONS_SERVICE_URL=http://ai-recommendations-service:8084
+    ports:
+      - "8085:8085"
+    depends_on:
+      redis:
+        condition: service_healthy
+      sports-data-service:
+        condition: service_healthy
+      optimization-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8085/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    volumes:
+      - ./services/realtime-service/migrations:/app/migrations
+    networks:
+      - dfs-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
   # API Gateway
   api-gateway:
     build:
@@ -150,6 +242,8 @@ services:
       - GOLF_SERVICE_URL=http://sports-data-service:8081
       - OPTIMIZATION_SERVICE_URL=http://optimization-service:8082
       - USER_SERVICE_URL=http://user-service:8083
+      - AI_RECOMMENDATIONS_SERVICE_URL=http://ai-recommendations-service:8084
+      - REALTIME_SERVICE_URL=http://realtime-service:8085
       - LOG_LEVEL=info
       - ENV=production
       # Enable background data fetching
@@ -167,6 +261,10 @@ services:
       optimization-service:
         condition: service_healthy
       user-service:
+        condition: service_healthy
+      ai-recommendations-service:
+        condition: service_healthy
+      realtime-service:
         condition: service_healthy
       redis:
         condition: service_healthy

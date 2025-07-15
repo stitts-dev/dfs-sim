@@ -1,0 +1,177 @@
+{
+  "test_configuration": {
+    "description": "AI Recommendations Service Test Configuration",
+    "version": "1.0.0",
+    "environments": {
+      "local": {
+        "service_url": "http://localhost:8084",
+        "api_gateway_url": "http://localhost:8080",
+        "database_url": "postgres://postgres:postgres@localhost:5432/dfs_optimizer_test",
+        "redis_url": "redis://localhost:6379/4"
+      },
+      "docker": {
+        "service_url": "http://ai-recommendations-service:8084",
+        "api_gateway_url": "http://api-gateway:8080",
+        "database_url": "postgres://postgres:postgres@db:5432/dfs_optimizer",
+        "redis_url": "redis://redis:6379/4"
+      }
+    },
+    "test_data": {
+      "golf_players": [
+        {
+          "id": 1,
+          "name": "Rory McIlroy",
+          "position": "G",
+          "salary": 9500,
+          "projected_points": 65.0,
+          "ownership": 25.5,
+          "team": "NIR"
+        },
+        {
+          "id": 2,
+          "name": "Scottie Scheffler",
+          "position": "G",
+          "salary": 10000,
+          "projected_points": 68.0,
+          "ownership": 30.0,
+          "team": "USA"
+        },
+        {
+          "id": 3,
+          "name": "Jon Rahm",
+          "position": "G",
+          "salary": 9200,
+          "projected_points": 64.0,
+          "ownership": 22.0,
+          "team": "ESP"
+        },
+        {
+          "id": 4,
+          "name": "Patrick Cantlay",
+          "position": "G",
+          "salary": 8500,
+          "projected_points": 58.0,
+          "ownership": 18.5,
+          "team": "USA"
+        },
+        {
+          "id": 5,
+          "name": "Viktor Hovland",
+          "position": "G",
+          "salary": 8200,
+          "projected_points": 61.0,
+          "ownership": 20.0,
+          "team": "NOR"
+        },
+        {
+          "id": 6,
+          "name": "Xander Schauffele",
+          "position": "G",
+          "salary": 7800,
+          "projected_points": 59.0,
+          "ownership": 15.5,
+          "team": "USA"
+        }
+      ],
+      "test_contests": [
+        {
+          "id": 123,
+          "sport": "golf",
+          "platform": "draftkings",
+          "contest_type": "gpp",
+          "salary_cap": 50000,
+          "entry_fee": 20.0,
+          "prize_pool": 50000.0
+        },
+        {
+          "id": 124,
+          "sport": "golf",
+          "platform": "fanduel",
+          "contest_type": "cash",
+          "salary_cap": 60000,
+          "entry_fee": 10.0,
+          "prize_pool": 1000.0
+        }
+      ],
+      "user_preferences": {
+        "risk_tolerance": "medium",
+        "ownership_strategy": "balanced",
+        "optimization_goal": "roi",
+        "include_realtime_data": true,
+        "max_recommendation_frequency": 5
+      }
+    },
+    "test_scenarios": {
+      "player_recommendations": {
+        "description": "Test AI-generated player recommendations",
+        "endpoint": "/api/v1/recommendations/players",
+        "method": "POST",
+        "expected_response_time_ms": 3000,
+        "required_fields": ["recommendations", "analysis", "confidence"]
+      },
+      "lineup_recommendations": {
+        "description": "Test AI-generated lineup optimization",
+        "endpoint": "/api/v1/recommendations/lineup",
+        "method": "POST",
+        "expected_response_time_ms": 5000,
+        "required_fields": ["optimized_lineup", "swaps", "analysis"]
+      },
+      "ownership_analysis": {
+        "description": "Test ownership data and leverage calculations",
+        "endpoint": "/api/v1/ownership/{contest_id}",
+        "method": "GET",
+        "expected_response_time_ms": 1000,
+        "required_fields": ["ownership_analysis", "metadata"]
+      },
+      "leverage_opportunities": {
+        "description": "Test leverage opportunity identification",
+        "endpoint": "/api/v1/ownership/{contest_id}/leverage",
+        "method": "GET",
+        "expected_response_time_ms": 2000,
+        "required_fields": ["leverage_opportunities", "filters"]
+      },
+      "contest_analysis": {
+        "description": "Test comprehensive contest analysis",
+        "endpoint": "/api/v1/analyze/contest",
+        "method": "POST",
+        "expected_response_time_ms": 4000,
+        "required_fields": ["analysis", "insights", "recommendations"]
+      }
+    },
+    "performance_thresholds": {
+      "response_time_ms": {
+        "excellent": 1000,
+        "good": 3000,
+        "acceptable": 5000,
+        "poor": 10000
+      },
+      "accuracy_thresholds": {
+        "recommendation_confidence": 70.0,
+        "ownership_prediction_accuracy": 80.0,
+        "leverage_score_precision": 75.0
+      },
+      "availability_requirements": {
+        "uptime_percentage": 99.5,
+        "max_consecutive_failures": 3,
+        "circuit_breaker_threshold": 5
+      }
+    },
+    "mock_responses": {
+      "claude_api_unavailable": {
+        "status": "error",
+        "message": "Claude API temporarily unavailable",
+        "fallback_strategy": "use_cached_recommendations"
+      },
+      "database_error": {
+        "status": "error", 
+        "message": "Database connection failed",
+        "fallback_strategy": "return_degraded_service"
+      },
+      "redis_unavailable": {
+        "status": "warning",
+        "message": "Cache unavailable, using direct computation",
+        "fallback_strategy": "bypass_cache"
+      }
+    }
+  }
+}

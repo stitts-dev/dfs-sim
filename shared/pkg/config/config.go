@@ -85,10 +85,15 @@ type Config struct {
 	SupportedSports       []string `mapstructure:"SUPPORTED_SPORTS"`
 
 	// Service Discovery (for microservices)
-	GolfServiceURL         string `mapstructure:"GOLF_SERVICE_URL"`
-	OptimizationServiceURL string `mapstructure:"OPTIMIZATION_SERVICE_URL"`
-	UserServiceURL         string `mapstructure:"USER_SERVICE_URL"`
-	GatewayServiceURL      string `mapstructure:"GATEWAY_SERVICE_URL"`
+	GolfServiceURL              string `mapstructure:"GOLF_SERVICE_URL"`
+	OptimizationServiceURL      string `mapstructure:"OPTIMIZATION_SERVICE_URL"`
+	UserServiceURL              string `mapstructure:"USER_SERVICE_URL"`
+	GatewayServiceURL           string `mapstructure:"GATEWAY_SERVICE_URL"`
+	AIRecommendationsServiceURL string `mapstructure:"AI_RECOMMENDATIONS_SERVICE_URL"`
+	RealtimeServiceURL          string `mapstructure:"REALTIME_SERVICE_URL"`
+
+	// Claude API Configuration
+	ClaudeAPIKey string `mapstructure:"CLAUDE_API_KEY"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -185,6 +190,11 @@ func setDefaults() {
 	viper.SetDefault("OPTIMIZATION_SERVICE_URL", "http://localhost:8082")
 	viper.SetDefault("USER_SERVICE_URL", "http://localhost:8083")
 	viper.SetDefault("GATEWAY_SERVICE_URL", "http://localhost:8080")
+	viper.SetDefault("AI_RECOMMENDATIONS_SERVICE_URL", "http://localhost:8084")
+	viper.SetDefault("REALTIME_SERVICE_URL", "http://localhost:8085")
+
+	// Claude API defaults
+	viper.SetDefault("CLAUDE_API_KEY", "")
 }
 
 func (c *Config) IsDevelopment() bool {

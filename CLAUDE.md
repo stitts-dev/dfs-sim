@@ -17,14 +17,39 @@ This project uses Context Engineering principles with comprehensive documentatio
 
 ### 🏗️ Architecture Overview
 
-**Backend (Go) - Production-Grade DFS Engine**
-- REST API using Gin framework with JWT authentication (`backend/`)
-- **Optimization Engine**: Advanced knapsack algorithm with correlation/stacking support
-- **Monte Carlo Simulator**: Parallel worker pools for contest outcome simulation
+**Microservices Architecture (Go) - Production-Grade DFS Engine**
+
+**API Gateway (`services/api-gateway/`)**
+- Central entry point using Gin framework with JWT authentication
+- Request routing and load balancing to specialized services
+- CORS handling and request/response logging
+- WebSocket proxy for real-time optimization progress
+- Health checks and circuit breaker patterns
+
+**User Service (`services/user-service/`)**
+- Phone-based authentication with OTP verification using Supabase
+- User management, preferences, and subscription handling
+- JWT token generation and validation
+- SMS integration (Twilio/Supabase) for verification codes
+- Supabase PostgreSQL database for user data
+
+**Golf Service (`services/golf-service/`)**
 - **Multi-Sport Provider System**: RapidAPI (golf), ESPN, BallDontLie, TheSportsDB with intelligent fallbacks
 - **Rate Limiting & Caching**: Redis-backed caching with aggressive RapidAPI rate limiting (20 req/day)
+- Tournament data synchronization and player statistics
+- Weather integration and course condition tracking
+- **Supabase PostgreSQL**: All golf data stored in unified Supabase database
+
+**Optimization Service (`services/optimization-service/`)**
+- **Optimization Engine**: Advanced knapsack algorithm with correlation/stacking support
+- **Monte Carlo Simulator**: Parallel worker pools for contest outcome simulation
 - **Real-time WebSocket Hub**: Live optimization progress and player updates
-- PostgreSQL with GORM, comprehensive migrations and constraints
+- **Supabase PostgreSQL**: All optimization and lineup data stored in unified Supabase database
+
+**Simplified Database Strategy (Supabase-First)**
+- **Supabase PostgreSQL**: ALL data - users, golf, contests, players, optimization results, lineups, Stripe subscriptions
+- **Redis**: Cross-service caching, rate limiting, session management only
+- **Local PostgreSQL**: REMOVED - migrated to Supabase for unified data management
 
 **Frontend (React + TypeScript) - Modern DFS Interface**
 - **Catalyst UI Kit Integration**: Tailwind Plus components (vendorized in `src/catalyst/`)
@@ -57,9 +82,49 @@ This project uses Context Engineering principles with comprehensive documentatio
 
 ### 🚀 Development Commands
 
-**Backend (Go)**
+**Microservices (Go)**
 ```bash
-# Navigate to backend
+# Start entire microservices stack
+docker-compose up -d
+
+# Start individual services for development
+cd services/api-gateway && go run cmd/server/main.go
+cd services/user-service && go run cmd/server/main.go
+cd services/golf-service && go run cmd/server/main.go
+cd services/optimization-service && go run cmd/server/main.go
+
+# Install dependencies for all services
+cd services/api-gateway && go mod download
+cd services/user-service && go mod download
+cd services/golf-service && go mod download
+cd services/optimization-service && go mod download
+
+# Run tests for specific services
+cd services/golf-service && go test ./...
+cd services/optimization-service && go test ./...
+cd services/user-service && go test ./...
+
+# Build services for production
+cd services/api-gateway && go build -o server cmd/server/main.go
+cd services/user-service && go build -o server cmd/server/main.go
+cd services/golf-service && go build -o server cmd/server/main.go
+cd services/optimization-service && go build -o server cmd/server/main.go
+
+# Database migrations (service-specific)
+cd services/user-service && go run ../../backend/cmd/migrate/main.go up
+cd services/golf-service && go run ../../backend/cmd/migrate/main.go up
+cd services/optimization-service && go run ../../backend/cmd/migrate/main.go up
+
+# Lint all services
+cd services/api-gateway && golangci-lint run
+cd services/user-service && golangci-lint run
+cd services/golf-service && golangci-lint run
+cd services/optimization-service && golangci-lint run
+```
+
+**Legacy Backend (Monolith - for reference)**
+```bash
+# Navigate to legacy backend
 cd backend
 
 # Install dependencies
@@ -104,28 +169,47 @@ npm run lint
 npm run type-check
 ```
 
-**Docker**
+**Docker (Simplified Microservices)**
 ```bash
-# Run entire stack
-docker-compose up
-
-# Run in background
+# Run entire microservices stack (PostgreSQL removed - uses Supabase)
 docker-compose up -d
 
-# View logs
+# Only Redis and microservices - no local database containers
+# Services automatically connect to Supabase PostgreSQL
+
+# View logs for all services
 docker-compose logs -f
+
+# View logs for specific services
+docker-compose logs -f api-gateway
+docker-compose logs -f user-service
+docker-compose logs -f golf-service
+docker-compose logs -f optimization-service
 
 # Stop services
 docker-compose down
+
+# Rebuild specific service
+docker-compose build user-service
+docker-compose up -d user-service
+
+# Check service health (all connect to Supabase)
+docker-compose ps
+curl http://localhost:8080/health   # API Gateway
+curl http://localhost:8081/health   # Golf Service
+curl http://localhost:8082/health   # Optimization Service
+curl http://localhost:8083/health   # User Service
 ```
 
 **Local Development (Alternative to Docker)**
 ```bash
-# Start all services locally (requires Go 1.21+, PostgreSQL, Redis)
+# Start all services locally (requires Go 1.21+, Redis only - PostgreSQL via Supabase)
 ./start-local.sh
 
 # Stop all local services
 ./stop-local.sh
+
+# Note: No local PostgreSQL needed - all services connect to Supabase
 ```
 
 **Testing Single Components**
@@ -154,30 +238,116 @@ go test -cover ./...
 
 ### 🌐 API Architecture & Domain Boundaries
 
-**REST API Structure (`internal/api/`)**
-- Base path: `/api/v1/` for all endpoints
-- Authentication: JWT with optional/required middleware per route group
-- WebSocket: `/ws` (separate from REST API, no versioning)
+**Microservices API Gateway (`services/api-gateway/`)**
+- **Base path**: `/api/v1/` for all client-facing endpoints
+- **Entry point**: API Gateway at port 8080 (nginx proxy on port 80/443)
+- **Authentication**: JWT with service-specific middleware and token validation
+- **WebSocket**: `/ws/optimization-progress/:user_id` (proxied to optimization service)
 
-**Core Domain Handlers**
-- **Contest Management**: `/contests/*` - Discovery, sync, data fetching
-- **Player Operations**: `/players/*` - Player details, statistics, history
-- **Lineup Management**: `/lineups/*` - CRUD operations, submission
-- **Optimization**: `/optimize`, `/optimize/validate` - Core optimization endpoints
-- **Simulation**: `/simulate/*` - Monte Carlo simulation execution
-- **Golf Integration**: `/golf/*` - Tournament data, leaderboards, projections
-- **AI Recommendations**: `/ai/*` - Claude integration for lineup suggestions
-- **Export**: `/export/*` - CSV generation for DFS platforms
+**Service Boundaries & Routing**
 
-**Database Models & Relationships**
-- **Core Entities**: Player, Contest, Lineup, SimulationResult
-- **Sport-Specific**: GolfTournament, GolfPlayer with performance history
-- **User Data**: UserPreferences with beginner mode and optimization settings
-- **Metadata**: Position requirements, platform constraints, team mappings
+**Authentication Routes (User Service Proxy)**
+```
+POST /api/v1/auth/register     → user-service:8083/auth/register
+POST /api/v1/auth/login        → user-service:8083/auth/login  
+POST /api/v1/auth/verify       → user-service:8083/auth/verify
+POST /api/v1/auth/resend       → user-service:8083/auth/resend
+GET  /api/v1/auth/me          → user-service:8083/auth/me
+POST /api/v1/auth/refresh     → user-service:8083/auth/refresh
+POST /api/v1/auth/logout      → user-service:8083/auth/logout
+```
+
+**User Management Routes (User Service Proxy)**
+```
+ANY /api/v1/users/*           → user-service:8083/users/*
+```
+
+**Golf Data Routes (Golf Service Proxy)**
+```
+ANY /api/v1/sports/*          → golf-service:8081/sports/*
+ANY /api/v1/contests/*        → golf-service:8081/contests/*
+ANY /api/v1/golf/*            → golf-service:8081/golf/*
+```
+
+**Optimization Routes (Optimization Service Proxy)**
+```
+ANY /api/v1/optimize          → optimization-service:8082/optimize
+ANY /api/v1/optimize/*        → optimization-service:8082/optimize/*
+ANY /api/v1/simulate/*        → optimization-service:8082/simulate/*
+```
+
+**Lineup Management (API Gateway Handled)**
+```
+GET    /api/v1/lineups        → api-gateway (local handler)
+POST   /api/v1/lineups        → api-gateway (local handler)
+GET    /api/v1/lineups/:id    → api-gateway (local handler)
+PUT    /api/v1/lineups/:id    → api-gateway (local handler)
+DELETE /api/v1/lineups/:id    → api-gateway (local handler)
+POST   /api/v1/lineups/:id/export → api-gateway (local handler)
+```
+
+**Health & Monitoring**
+```
+GET /health                   → api-gateway health check
+GET /ready                    → api-gateway readiness check
+GET /status/services          → all service health status
+GET /status/circuit-breakers  → circuit breaker status
+```
+
+**Database Models & Service Ownership (Unified Supabase)**
+- **All Services (Supabase PostgreSQL)**: All tables in single unified database
+  - **User Data**: User, UserPreferences, SubscriptionTier, StripeCustomers, StripeSubscriptions
+  - **Sports Data**: Sports, Players, Contests (across all sports)
+  - **Golf Data**: GolfTournaments, GolfPlayerEntries, GolfRoundScores, GolfCourseHistory
+  - **DFS Data**: Lineups, LineupPlayers, OptimizationResults, SimulationResults
+  - **Payment Data**: StripeEvents, payment processing tables
 
 ### 🧱 Code Structure & Conventions
 
-**Backend Structure**
+**Microservices Structure**
+```
+services/
+├── api-gateway/           # Central API Gateway
+│   ├── cmd/server/main.go    # Gateway entry point
+│   ├── internal/
+│   │   ├── api/handlers/     # Gateway-specific handlers
+│   │   ├── middleware/       # Auth, CORS, logging middleware
+│   │   ├── proxy/           # Service proxy logic
+│   │   └── websocket/       # WebSocket hub
+│   └── config/nginx.conf    # NGINX configuration
+├── user-service/          # User Authentication & Management
+│   ├── cmd/server/main.go    # User service entry point
+│   ├── internal/
+│   │   ├── api/handlers/     # Auth, user endpoints
+│   │   ├── models/          # User, preferences models
+│   │   └── services/        # User business logic, SMS
+│   └── migrations/          # User-specific migrations
+├── golf-service/          # Golf Data & Providers
+│   ├── cmd/server/main.go    # Golf service entry point
+│   ├── internal/
+│   │   ├── api/handlers/     # Golf endpoints
+│   │   ├── models/          # Golf-specific models
+│   │   ├── providers/       # RapidAPI, ESPN, etc.
+│   │   └── services/        # Data fetching, caching
+│   └── migrations/          # Golf-specific migrations
+├── optimization-service/  # Optimization & Simulation
+│   ├── cmd/server/main.go    # Optimization service entry point
+│   ├── internal/
+│   │   ├── api/handlers/     # Optimization endpoints
+│   │   ├── optimizer/       # Optimization algorithms
+│   │   ├── simulator/       # Monte Carlo simulation
+│   │   └── websocket/       # Real-time progress
+│   └── migrations/          # Optimization-specific migrations
+└── shared/                # Shared packages across services
+    ├── pkg/
+    │   ├── config/          # Configuration management
+    │   ├── database/        # Database connections
+    │   ├── logger/          # Structured logging
+    │   └── optimizer/       # Shared optimization logic
+    └── types/               # Common type definitions
+```
+
+**Legacy Backend Structure (Monolith)**
 ```
 backend/
 ├── cmd/
@@ -289,31 +459,94 @@ frontend/
 
 ### ⚙️ Environment Configuration & External Dependencies
 
-**Core System Configuration**
-- `DATABASE_URL`: PostgreSQL connection (default: postgres://postgres:postgres@localhost:5432/dfs_optimizer)
-- `REDIS_URL`: Redis connection for caching and rate limiting (default: redis://localhost:6379)
-- `JWT_SECRET`: Authentication secret key for API access
-- `CORS_ORIGINS`: Multiple frontend origins supported (comma-separated)
-- `PORT`: Backend server port (default: 8080)
-- `ENV`: Environment mode (development/production)
+**Service-Specific Configuration**
 
-**Optimization & Performance Limits**
-- `MAX_LINEUPS`: Maximum lineups per optimization request (default: 150)
-- `OPTIMIZATION_TIMEOUT`: Timeout in seconds for optimization requests (default: 30)
-- `MAX_SIMULATIONS`: Maximum Monte Carlo simulations per request (default: 100000)
-- `SIMULATION_WORKERS`: Parallel simulation workers (default: 4, adjust based on CPU cores)
+**API Gateway (Port 8080)**
+```bash
+SERVICE_NAME=gateway
+PORT=8080
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/dfs_optimizer
+REDIS_URL=redis://localhost:6379/2
+JWT_SECRET=your-secret-key-change-in-production
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:80
+GOLF_SERVICE_URL=http://golf-service:8081
+OPTIMIZATION_SERVICE_URL=http://optimization-service:8082
+USER_SERVICE_URL=http://user-service:8083
+ENV=development
+```
+
+**User Service (Port 8083) - Supabase Integration**
+```bash
+SERVICE_NAME=user
+PORT=8083
+DATABASE_URL=postgresql://postgres:[password]@db.[project-id].supabase.co:5432/postgres
+REDIS_URL=redis://localhost:6379/3
+JWT_SECRET=your-secret-key-change-in-production
+SUPABASE_URL=https://[project-id].supabase.co
+SUPABASE_SERVICE_KEY=your-service-role-key
+SUPABASE_ANON_KEY=your-anon-key
+SMS_PROVIDER=supabase  # or twilio
+TWILIO_ACCOUNT_SID=your-twilio-sid
+TWILIO_AUTH_TOKEN=your-twilio-token
+TWILIO_FROM_NUMBER=+1234567890
+ENV=development
+```
+
+**Golf Service (Port 8081)**
+```bash
+SERVICE_NAME=golf
+PORT=8081
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/dfs_optimizer
+REDIS_URL=redis://localhost:6379/0
+RAPIDAPI_KEY=your-rapidapi-key
+ESPN_RATE_LIMIT=10
+CIRCUIT_BREAKER_THRESHOLD=5
+ENABLE_BACKGROUND_JOBS=true
+DATA_FETCH_INTERVAL=30m
+ENV=development
+```
+
+**Optimization Service (Port 8082)**
+```bash
+SERVICE_NAME=optimization
+PORT=8082
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/dfs_optimizer
+REDIS_URL=redis://localhost:6379/1
+MAX_LINEUPS=150
+OPTIMIZATION_TIMEOUT=30
+MAX_SIMULATIONS=100000
+SIMULATION_WORKERS=4
+ENV=development
+```
+
+**Frontend Configuration**
+```bash
+# React + Vite Frontend
+VITE_API_URL=http://localhost:8080/api/v1  # API Gateway endpoint
+VITE_WS_URL=ws://localhost:8080/ws          # WebSocket endpoint
+VITE_SUPABASE_URL=https://[project-id].supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
 
 **External Data Provider APIs**
 - `RAPIDAPI_KEY`: RapidAPI Live Golf Data API key ⚠️ **Critical**: Basic plan = 20 requests/day limit
 - `BALLDONTLIE_API_KEY`: NBA player and game data (free tier available)
 - `THESPORTSDB_API_KEY`: Multi-sport data provider (free tier: "1")
 - `ESPN_RATE_LIMIT`: ESPN scraping rate limit (requests per hour)
-- `DATA_FETCH_INTERVAL`: How often to sync external data (e.g., "1h", "30m")
+- `DATA_FETCH_INTERVAL`: How often to sync external data (e.g., "30m", "1h")
 
-**AI Integration**
-- `ANTHROPIC_API_KEY`: Claude AI integration for lineup recommendations
-- `AI_RATE_LIMIT`: Claude API requests per hour limit
-- `AI_CACHE_EXPIRATION`: Cache expiration for AI responses (seconds)
+**Supabase Configuration**
+- `SUPABASE_URL`: Your Supabase project URL
+- `SUPABASE_SERVICE_KEY`: Service role key for server-side operations
+- `SUPABASE_ANON_KEY`: Anonymous key for client-side operations
+- `SMS_PROVIDER`: Choose between "supabase" or "twilio" for OTP delivery
+
+**Performance & Rate Limiting**
+- `MAX_LINEUPS`: Maximum lineups per optimization (default: 150)
+- `OPTIMIZATION_TIMEOUT`: Optimization timeout in seconds (default: 30)
+- `MAX_SIMULATIONS`: Maximum Monte Carlo simulations (default: 100000)
+- `SIMULATION_WORKERS`: Parallel workers (default: 4, adjust based on CPU cores)
+- `CIRCUIT_BREAKER_THRESHOLD`: Failure threshold for external APIs (default: 5)
 
 ### 🔄 Project Awareness & Context
 
@@ -353,34 +586,102 @@ frontend/
 
 ### 📊 Database Setup
 
-- Database name: `dfs_optimizer`
-- Default credentials: postgres/postgres
-- Run migrations with seed data: `go run cmd/migrate/main.go up`
-- WebSocket support for real-time optimization progress
-- JWT authentication for API endpoints
+**Hybrid Database Architecture**
+
+**Supabase PostgreSQL (User Service)**
+- **Database**: Managed Supabase instance for user data
+- **Purpose**: User accounts, authentication, preferences, subscriptions
+- **Connection**: Via Supabase client libraries and direct PostgreSQL connection
+- **Tables**: `auth.users`, `public.users`, `user_preferences`, `subscription_tiers`
+- **Features**: Built-in auth, real-time subscriptions, row-level security (RLS)
+- **Setup**: See `supabase-setup-guide.md` for configuration instructions
+
+**Local PostgreSQL (DFS Data)**
+- **Database**: `dfs_optimizer` 
+- **Purpose**: Golf data, contests, players, optimization results, lineups
+- **Default credentials**: postgres/postgres
+- **Tables**: `golf_tournaments`, `golf_players`, `contests`, `lineups`, `optimization_results`
+- **Migrations**: Service-specific migrations in each service's `migrations/` directory
+
+**Unified Database Configuration (Simplified)**
+```bash
+# ALL SERVICES → Supabase PostgreSQL (Single Database)
+DATABASE_URL=postgresql://postgres:[password]@db.jkltmqniqbwschxjogor.supabase.co:5432/postgres
+
+# User Service: Users, auth, preferences, Stripe data
+# Golf Service: Golf tournaments, players, courses  
+# Optimization Service: Optimization results, simulations
+# API Gateway: Lineups, session management
+```
+
+**Database Setup (Supabase-First)**
+```bash
+# Run consolidated schema in Supabase SQL Editor
+# Execute: supabase-consolidated-schema.sql
+
+# Contains all tables for:
+# - User management + Stripe integration
+# - Golf tournaments and player data  
+# - DFS contests and lineup optimization
+# - Monte Carlo simulation results
+```
+
+**Redis Configuration**
+- **Purpose**: Cross-service caching, rate limiting, session management
+- **Service DB Allocation**:
+  - DB 0: Golf Service (data caching)
+  - DB 1: Optimization Service (result caching)
+  - DB 2: API Gateway (session management)
+  - DB 3: User Service (auth tokens)
 
 ### 🚧 Implementation Status & Critical Issues
 
-**Backend**: ✅ Production-Ready (85% Complete)
-- ✅ All API endpoints operational with comprehensive handlers
-- ✅ Advanced optimization and simulation engines complete
-- ✅ Database models with proper constraints and migrations
-- ✅ WebSocket real-time updates working
-- ✅ Multi-provider external API integrations
-- ⚠️ **CRITICAL**: API routing misconfiguration - `/api/v1/*` routes not accessible
-- ⚠️ **BLOCKING**: Startup operations can take 30+ seconds due to synchronous API calls
-- ⚠️ Performance optimization needed for large player pools (>150 players)
+**Microservices Backend**: ✅ Production-Ready (90% Complete)
+- ✅ **API Gateway**: Fully operational with service routing and health checks
+- ✅ **User Service**: Complete phone auth with Supabase integration and OTP verification
+- ✅ **Golf Service**: Multi-provider data integration with rate limiting and caching
+- ✅ **Optimization Service**: Advanced optimization and simulation engines complete
+- ✅ **Database Architecture**: Hybrid Supabase + PostgreSQL strategy implemented
+- ✅ **Authentication Flow**: End-to-end phone auth through API Gateway working
+- ✅ **Real-time Updates**: WebSocket hub for optimization progress operational
+- ⚠️ **MINOR**: Service discovery could be enhanced with load balancing
+- ⚠️ **MINOR**: Background job scheduling needs monitoring and alerting
+
+**Legacy Backend**: ⚠️ Maintained for Reference (85% Complete)
+- ✅ All monolithic features preserved in `backend/` directory
+- ✅ Can be used as fallback during migration testing
+- ⚠️ Not recommended for new development (use microservices)
 
 **Frontend**: ⚠️ Infrastructure Complete, Features Pending (40% Complete)
 - ✅ Complete TypeScript setup with React Query and Zustand
 - ✅ Catalyst UI Kit integration and TailwindCSS configuration
-- ✅ Authentication flow and user preferences system
+- ✅ **Authentication Flow**: Complete phone auth integration with API Gateway
+- ✅ **User Preferences**: Dashboard loads user preferences from Supabase
+- ✅ **Session Management**: Automatic token refresh and session persistence
 - ❌ **MISSING**: Drag-and-drop lineup builder implementation
-- ❌ **MISSING**: Real-time WebSocket integration for live updates
+- ❌ **MISSING**: Real-time WebSocket integration for live optimization updates
 - ❌ **MISSING**: Simulation visualization components
 - ❌ **MISSING**: Manual lineup construction and editing
 
-**Critical Path to MVP**: Fix API routing → Basic data integration → Drag-and-drop UI
+**Authentication Architecture**: ✅ Complete (100%)
+- ✅ **Phone Registration**: OTP-based registration with conflict detection
+- ✅ **Login Flow**: Separate login endpoint for existing users
+- ✅ **Token Management**: JWT generation and validation across services
+- ✅ **Session Persistence**: Frontend auth store with automatic refresh
+- ✅ **User Preferences**: Sync between Supabase and frontend state
+
+**Authentication Flow (End-to-End)**
+```
+1. Frontend → API Gateway → User Service (phone registration/login)
+2. User Service → Supabase (OTP generation and SMS delivery)
+3. User → Frontend (OTP verification)
+4. Frontend → API Gateway → User Service (OTP verification)
+5. User Service → JWT token generation → Frontend
+6. Frontend → Automatic token refresh (every 50 minutes)
+7. All subsequent API calls include JWT header through API Gateway
+```
+
+**Critical Path to MVP**: Golf data integration → Drag-and-drop UI → Real-time updates
 
 ### 🔔 System Management
 
@@ -408,20 +709,62 @@ frontend/
 
 ### 🛠️ Troubleshooting
 
-**Database Connection Issues**
-- Ensure PostgreSQL is running: `docker-compose ps`
-- Check connection string in `.env`
-- Run migrations: `go run cmd/migrate/main.go up`
+**Microservices Issues**
 
-**Frontend Not Loading**
-- Check API URL in `frontend/.env`
-- Verify CORS origins in backend `.env`
-- Check browser console for errors
+**Service Communication Problems**
+- Check all services are running: `docker-compose ps`
+- Verify service URLs in API Gateway configuration:
+  ```bash
+  curl http://localhost:8081/health  # Golf Service
+  curl http://localhost:8082/health  # Optimization Service  
+  curl http://localhost:8083/health  # User Service
+  ```
+- Check API Gateway routing: `curl http://localhost:8080/status/services`
+- Verify JWT secret consistency across all services
 
-**Optimization Timeouts**
-- Increase `OPTIMIZATION_TIMEOUT` in `.env`
-- Reduce `MAX_LINEUPS` for faster results
-- Check Redis connection for caching issues
+**Authentication Issues**
+- **Supabase Connection**: Check `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` in user-service
+- **JWT Token Problems**: Ensure same `JWT_SECRET` in API Gateway and User Service
+- **Phone Auth Not Working**: 
+  - Verify SMS provider configuration in user-service
+  - Check Supabase phone auth is enabled in dashboard
+  - Validate phone number format (E.164: +1234567890)
+- **Token Refresh Failing**: Check API Gateway auth middleware configuration
+
+**Database Connection Issues (Supabase-First)**
+- **Unified Supabase Database (All Services)**: 
+  - Verify connection string format: `postgresql://postgres:[password]@db.jkltmqniqbwschxjogor.supabase.co:5432/postgres`
+  - Check project ID and password in `DATABASE_URL`
+  - Test connection: `psql "postgresql://postgres:xk3StS7e@S!Crcj@db.jkltmqniqbwschxjogor.supabase.co:5432/postgres"`
+  - Ensure schema is deployed: Run `supabase-consolidated-schema.sql` in Supabase SQL Editor
+- **Local PostgreSQL**: REMOVED - no longer used
+
+**Redis Connection Issues**
+- Check Redis is running: `docker-compose ps redis`
+- Verify each service uses correct Redis DB:
+  - Golf Service: DB 0
+  - Optimization Service: DB 1  
+  - API Gateway: DB 2
+  - User Service: DB 3
+- Test Redis connection: `redis-cli ping`
+
+**Frontend Issues**
+- **API Connection**: Check `VITE_API_URL` points to API Gateway (port 8080)
+- **WebSocket Issues**: Verify `VITE_WS_URL` points to API Gateway WebSocket endpoint
+- **Authentication**: Check `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
+- **CORS Errors**: Verify `CORS_ORIGINS` in API Gateway includes frontend URL
+
+**Performance Issues**
+- **Optimization Timeouts**: Increase `OPTIMIZATION_TIMEOUT` in optimization-service
+- **Slow Golf Data**: Check `RAPIDAPI_KEY` quota and rate limits
+- **High Memory Usage**: Reduce `MAX_LINEUPS` and `SIMULATION_WORKERS`
+- **Service Startup Slow**: Check `ENABLE_BACKGROUND_JOBS=false` for faster startup
+
+**Docker Issues (Simplified Stack)**
+- **Services Not Starting**: Check Docker Compose configuration (PostgreSQL container removed)
+- **Health Check Failing**: Verify health check endpoints return 200 status and can connect to Supabase
+- **Network Issues**: Ensure all services are on the same Docker network (`dfs-network`)
+- **Supabase Connection**: Verify all services can reach Supabase PostgreSQL externally
 
 ### 📝 Development Notes
 
@@ -464,26 +807,54 @@ backend/scripts/test-golf-integration.sh
 
 ### 📂 Key Directories & Files
 
-**Backend Core**
-- `internal/api/handlers/` - All API endpoint handlers
-- `internal/optimizer/` - Core optimization algorithms with correlation and stacking
-- `internal/simulator/` - Monte Carlo simulation engine
-- `internal/providers/` - External data providers (BallDontLie, ESPN, RapidAPI)
-- `internal/services/` - Business logic layer
-- `migrations/` - Database schema evolution
-- `tests/` - Integration tests with manual test checklists
+**Microservices Core**
+- `services/api-gateway/` - Central API Gateway with routing and auth middleware
+- `services/user-service/` - Phone authentication and user management with Supabase
+- `services/golf-service/` - Golf data providers and tournament synchronization
+- `services/optimization-service/` - Optimization algorithms and Monte Carlo simulation
+- `shared/` - Shared packages and types across all services
+- `services/*/migrations/` - Service-specific database migrations
+
+**API Gateway**
+- `services/api-gateway/internal/proxy/` - Service proxy and load balancing
+- `services/api-gateway/internal/middleware/` - Auth, CORS, and logging middleware
+- `services/api-gateway/internal/websocket/` - WebSocket hub for real-time updates
+
+**User Service**
+- `services/user-service/internal/models/` - User, preferences, and subscription models
+- `services/user-service/internal/services/` - SMS service and user business logic
+- `services/user-service/migrations/` - Supabase-compatible user schema migrations
+
+**Golf Service**
+- `services/golf-service/internal/providers/` - RapidAPI, ESPN, external data providers
+- `services/golf-service/internal/services/` - Data fetching, caching, weather integration
+
+**Optimization Service**
+- `services/optimization-service/internal/optimizer/` - Core optimization algorithms
+- `services/optimization-service/internal/simulator/` - Monte Carlo simulation engine
+- `services/optimization-service/internal/websocket/` - Real-time progress updates
+
+**Legacy Backend (Reference)**
+- `backend/internal/api/handlers/` - All monolithic API endpoint handlers
+- `backend/internal/optimizer/` - Original optimization algorithms
+- `backend/internal/simulator/` - Original Monte Carlo simulation engine
+- `backend/migrations/` - Complete database schema for monolithic deployment
+- `backend/tests/` - Integration tests with manual test checklists
 
 **Frontend Core**
 - `src/pages/` - Main application pages (Dashboard, Optimizer, Lineups)
-- `src/components/` - Reusable UI components with AI integration
-- `src/services/` - API clients and authentication
+- `src/components/auth/` - Phone authentication components
+- `src/services/` - API clients for microservices architecture
+- `src/store/` - Zustand stores for auth and preferences with Supabase integration
 - `src/types/` - TypeScript type definitions for all entities
 
-**Configuration & Setup**
-- `docker-compose.yml` - Complete stack deployment with health checks
-- `start-local.sh` - Local development setup with dependency validation
-- Backend uses Viper for configuration management with environment variable support
-- Frontend uses Vite with proxy configuration for API calls
+**Configuration & Deployment**
+- `docker-compose.yml` - Complete microservices stack with health checks
+- `docker-compose.microservices.yml` - Microservices-specific deployment
+- `docker-compose.monolith.yml` - Legacy monolith deployment option
+- `supabase-setup-guide.md` - Step-by-step Supabase configuration guide
+- Each service uses Viper for configuration management with environment variables
+- Frontend uses Vite with API Gateway proxy configuration
 
 ### 🔧 Critical Architecture Patterns
 

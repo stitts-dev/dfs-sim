@@ -19,11 +19,13 @@ import (
 
 // ServiceProxy handles proxying requests to microservices
 type ServiceProxy struct {
-	golfClient         *ServiceClient
-	optimizationClient *ServiceClient
-	userClient         *ServiceClient
-	circuitBreakers    map[string]*gobreaker.CircuitBreaker
-	logger             *logrus.Logger
+	golfClient              *ServiceClient
+	optimizationClient      *ServiceClient
+	userClient              *ServiceClient
+	aiRecommendationsClient *ServiceClient
+	realtimeClient          *ServiceClient
+	circuitBreakers         map[string]*gobreaker.CircuitBreaker
+	logger                  *logrus.Logger
 }
 
 // ServiceClient represents an HTTP client for a specific service
@@ -40,6 +42,8 @@ func NewServiceProxy(cfg *config.Config, logger *logrus.Logger) *ServiceProxy {
 	golfClient := NewServiceClient(cfg.GolfServiceURL, "sports-data-service", logger)
 	optimizationClient := NewServiceClient(cfg.OptimizationServiceURL, "optimization-service", logger)
 	userClient := NewServiceClient(cfg.UserServiceURL, "user-service", logger)
+	aiRecommendationsClient := NewServiceClient(cfg.AIRecommendationsServiceURL, "ai-recommendations-service", logger)
+	realtimeClient := NewServiceClient(cfg.RealtimeServiceURL, "realtime-service", logger)
 
 	// Create circuit breakers for each service
 	circuitBreakers := make(map[string]*gobreaker.CircuitBreaker)
@@ -98,16 +102,56 @@ func NewServiceProxy(cfg *config.Config, logger *logrus.Logger) *ServiceProxy {
 		},
 	})
 
+	aiRecommendationsCB := gobreaker.NewCircuitBreaker(gobreaker.Settings{
+		Name:        "ai-recommendations-service",
+		MaxRequests: 3,
+		Interval:    60 * time.Second,
+		Timeout:     30 * time.Second, // Longer timeout for AI processing
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
+			return counts.Requests >= 3 && failureRatio >= 0.6
+		},
+		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
+			logger.WithFields(logrus.Fields{
+				"service":    name,
+				"from_state": from,
+				"to_state":   to,
+			}).Warn("Circuit breaker state changed")
+		},
+	})
+
+	realtimeCB := gobreaker.NewCircuitBreaker(gobreaker.Settings{
+		Name:        "realtime-service",
+		MaxRequests: 3,
+		Interval:    60 * time.Second,
+		Timeout:     15 * time.Second, // Medium timeout for real-time operations
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
+			return counts.Requests >= 3 && failureRatio >= 0.6
+		},
+		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
+			logger.WithFields(logrus.Fields{
+				"service":    name,
+				"from_state": from,
+				"to_state":   to,
+			}).Warn("Circuit breaker state changed")
+		},
+	})
+
 	circuitBreakers["sports-data-service"] = golfCB
 	circuitBreakers["optimization-service"] = optimizationCB
 	circuitBreakers["user-service"] = userCB
+	circuitBreakers["ai-recommendations-service"] = aiRecommendationsCB
+	circuitBreakers["realtime-service"] = realtimeCB
 
 	return &ServiceProxy{
-		golfClient:         golfClient,
-		optimizationClient: optimizationClient,
-		userClient:         userClient,
-		circuitBreakers:    circuitBreakers,
-		logger:             logger,
+		golfClient:              golfClient,
+		optimizationClient:      optimizationClient,
+		userClient:              userClient,
+		aiRecommendationsClient: aiRecommendationsClient,
+		realtimeClient:          realtimeClient,
+		circuitBreakers:         circuitBreakers,
+		logger:                  logger,
 	}
 }
 
@@ -141,6 +185,16 @@ func (sp *ServiceProxy) ProxyOptimizationRequest(c *gin.Context) {
 // ProxyUserRequest proxies requests to the user service
 func (sp *ServiceProxy) ProxyUserRequest(c *gin.Context) {
 	sp.proxyRequest(c, sp.userClient, "user-service")
+}
+
+// ProxyAIRecommendationsRequest proxies requests to the AI recommendations service
+func (sp *ServiceProxy) ProxyAIRecommendationsRequest(c *gin.Context) {
+	sp.proxyRequest(c, sp.aiRecommendationsClient, "ai-recommendations-service")
+}
+
+// ProxyRealtimeRequest proxies requests to the realtime service
+func (sp *ServiceProxy) ProxyRealtimeRequest(c *gin.Context) {
+	sp.proxyRequest(c, sp.realtimeClient, "realtime-service")
 }
 
 // proxyRequest handles the actual request proxying with circuit breaker

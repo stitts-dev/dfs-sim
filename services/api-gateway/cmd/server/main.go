@@ -155,10 +155,70 @@ func main() {
 			simulation.Any("", serviceProxy.ProxyOptimizationRequest)
 			simulation.Any("/*path", serviceProxy.ProxyOptimizationRequest)
 		}
+
+		// AI Recommendations endpoints (proxied to ai-recommendations service)
+		aiRecommendations := apiV1.Group("/ai-recommendations")
+		aiRecommendations.Use(middleware.AuthRequired(cfg.SupabaseJWTSecret))
+		{
+			aiRecommendations.Any("", serviceProxy.ProxyAIRecommendationsRequest)
+			aiRecommendations.Any("/*path", serviceProxy.ProxyAIRecommendationsRequest)
+		}
+
+		// Analysis endpoints (proxied to ai-recommendations service)
+		analysis := apiV1.Group("/analyze")
+		analysis.Use(middleware.AuthRequired(cfg.SupabaseJWTSecret))
+		{
+			analysis.Any("", serviceProxy.ProxyAIRecommendationsRequest)
+			analysis.Any("/*path", serviceProxy.ProxyAIRecommendationsRequest)
+		}
+
+		// Ownership endpoints (proxied to ai-recommendations service)
+		ownership := apiV1.Group("/ownership")
+		ownership.Use(middleware.AuthRequired(cfg.SupabaseJWTSecret))
+		{
+			ownership.Any("", serviceProxy.ProxyAIRecommendationsRequest)
+			ownership.Any("/*path", serviceProxy.ProxyAIRecommendationsRequest)
+		}
+
+		// Real-time data endpoints (proxied to realtime service)
+		realtime := apiV1.Group("/realtime")
+		realtime.Use(middleware.AuthRequired(cfg.SupabaseJWTSecret))
+		{
+			realtime.Any("", serviceProxy.ProxyRealtimeRequest)
+			realtime.Any("/*path", serviceProxy.ProxyRealtimeRequest)
+		}
+
+		// Late swap endpoints (proxied to realtime service)
+		lateswap := apiV1.Group("/lateswap")
+		lateswap.Use(middleware.AuthRequired(cfg.SupabaseJWTSecret))
+		{
+			lateswap.Any("", serviceProxy.ProxyRealtimeRequest)
+			lateswap.Any("/*path", serviceProxy.ProxyRealtimeRequest)
+		}
+
+		// Alert endpoints (proxied to realtime service)  
+		alerts := apiV1.Group("/alerts")
+		alerts.Use(middleware.AuthRequired(cfg.SupabaseJWTSecret))
+		{
+			alerts.Any("", serviceProxy.ProxyRealtimeRequest)
+			alerts.Any("/*path", serviceProxy.ProxyRealtimeRequest)
+		}
 	}
 
 	// WebSocket endpoint for optimization progress (proxied to optimization service)
 	router.GET("/ws/optimization-progress/:user_id", wsHub.HandleOptimizationProgress)
+
+	// WebSocket endpoint for AI recommendations (proxied to ai-recommendations service)
+	router.GET("/ws/ai-recommendations/:user_id", wsHub.HandleAIRecommendations)
+
+	// WebSocket endpoint for real-time events (proxied to realtime service)
+	router.GET("/ws/realtime-events/:user_id", wsHub.HandleRealtimeEvents)
+
+	// WebSocket endpoint for late swap notifications (proxied to realtime service)
+	router.GET("/ws/lateswap-notifications/:user_id", wsHub.HandleLateSwapNotifications)
+
+	// WebSocket endpoint for alert notifications (proxied to realtime service)
+	router.GET("/ws/alert-notifications/:user_id", wsHub.HandleAlertNotifications)
 
 	// Health check endpoints
 	router.GET("/health", healthHandler.GetHealth)
