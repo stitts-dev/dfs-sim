@@ -199,6 +199,7 @@ type GolfProjection struct {
 	CourseCutProbability    float64 `json:"course_cut_probability"`
 	WeatherAdjustedCut      float64 `json:"weather_adjusted_cut"`
 	FinalCutProbability     float64 `json:"final_cut_probability"`
+	CutProbability          float64 `json:"cut_probability"`  // Alias for FinalCutProbability
 	CutConfidence          float64 `json:"cut_confidence"`
 	
 	// Position probabilities
