@@ -3,14 +3,12 @@ package websocket
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
-
-	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
 var upgrader = websocket.Upgrader{
@@ -21,7 +19,7 @@ var upgrader = websocket.Upgrader{
 
 // Client represents a WebSocket client
 type Client struct {
-	UserID uint
+	UserID uuid.UUID
 	Conn   *websocket.Conn
 	Send   chan []byte
 	Hub    *Hub
@@ -30,7 +28,7 @@ type Client struct {
 // Hub maintains active WebSocket connections and broadcasts messages
 type Hub struct {
 	clients    map[*Client]bool
-	userClients map[uint][]*Client
+	userClients map[uuid.UUID][]*Client
 	broadcast  chan []byte
 	register   chan *Client
 	unregister chan *Client
@@ -42,7 +40,7 @@ type Hub struct {
 func NewHub(logger *logrus.Logger) *Hub {
 	return &Hub{
 		clients:     make(map[*Client]bool),
-		userClients: make(map[uint][]*Client),
+		userClients: make(map[uuid.UUID][]*Client),
 		broadcast:   make(chan []byte, 256),
 		register:    make(chan *Client),
 		unregister:  make(chan *Client),
@@ -110,7 +108,7 @@ func (h *Hub) Run() {
 // HandleWebSocket handles WebSocket connections
 func (h *Hub) HandleWebSocket(c *gin.Context) {
 	userIDStr := c.Param("user_id")
-	userID, err := strconv.ParseUint(userIDStr, 10, 32)
+	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 		return
@@ -123,7 +121,7 @@ func (h *Hub) HandleWebSocket(c *gin.Context) {
 	}
 
 	client := &Client{
-		UserID: uint(userID),
+		UserID: userID,
 		Conn:   conn,
 		Send:   make(chan []byte, 256),
 		Hub:    h,
@@ -137,7 +135,7 @@ func (h *Hub) HandleWebSocket(c *gin.Context) {
 }
 
 // BroadcastToUser sends a message to all connections for a specific user
-func (h *Hub) BroadcastToUser(userID uint, message interface{}) {
+func (h *Hub) BroadcastToUser(userID uuid.UUID, message interface{}) {
 	h.mutex.RLock()
 	clients := h.userClients[userID]
 	h.mutex.RUnlock()
@@ -176,11 +174,11 @@ func (h *Hub) BroadcastToAll(message interface{}) {
 }
 
 // GetConnectedUsers returns the list of currently connected user IDs
-func (h *Hub) GetConnectedUsers() []uint {
+func (h *Hub) GetConnectedUsers() []uuid.UUID {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
 
-	users := make([]uint, 0, len(h.userClients))
+	users := make([]uuid.UUID, 0, len(h.userClients))
 	for userID := range h.userClients {
 		users = append(users, userID)
 	}

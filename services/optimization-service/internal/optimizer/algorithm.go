@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jstittsworth/dfs-optimizer/internal/models"
-	"github.com/jstittsworth/dfs-optimizer/pkg/logger"
+	"github.com/stitts-dev/dfs-sim/shared/types"
+	"github.com/stitts-dev/dfs-sim/shared/pkg/logger"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,7 +23,7 @@ type OptimizeConfig struct {
 	ExcludedPlayers     []uint           `json:"excluded_players"`
 	MinExposure         map[uint]float64 `json:"min_exposure"`
 	MaxExposure         map[uint]float64 `json:"max_exposure"`
-	Contest             *models.Contest  `json:"-"`
+	Contest             *types.Contest  `json:"-"`
 }
 
 type StackingRule struct {
@@ -34,22 +34,22 @@ type StackingRule struct {
 }
 
 type OptimizerResult struct {
-	Lineups           []models.Lineup `json:"lineups"`
+	Lineups           []types.GeneratedLineup `json:"lineups"`
 	OptimizationTime  int64           `json:"optimization_time_ms"`
 	TotalCombinations int64           `json:"total_combinations"`
 	ValidCombinations int64           `json:"valid_combinations"`
 }
 
 type lineupCandidate struct {
-	players         []models.Player
+	players         []types.Player
 	totalSalary     int
 	projectedPoints float64
-	positions       map[string][]models.Player
+	positions       map[string][]types.Player
 	// Track which position slot each player fills (for flex positions)
 	playerPositions map[uint]string // playerID -> position slot filled
 }
 
-func OptimizeLineups(players []models.Player, config OptimizeConfig) (*OptimizerResult, error) {
+func OptimizeLineups(players []types.Player, config OptimizeConfig) (*OptimizerResult, error) {
 	// Generate unique optimization ID for request tracing
 	optimizationID := uuid.New().String()
 	startTime := getCurrentTimeMs()
@@ -95,18 +95,29 @@ func OptimizeLineups(players []models.Player, config OptimizeConfig) (*Optimizer
 	finalLineups := applyDiversityConstraints(validLineups, config)
 
 	// Convert to model lineups
-	result.Lineups = make([]models.Lineup, 0, len(finalLineups))
+	result.Lineups = make([]types.GeneratedLineup, 0, len(finalLineups))
 	for i, candidate := range finalLineups {
-		lineup := models.Lineup{
-			ContestID:        config.Contest.ID,
+		// Convert Player slice to LineupPlayer slice
+		lineupPlayers := make([]types.LineupPlayer, len(candidate.players))
+		for j, player := range candidate.players {
+			lineupPlayers[j] = types.LineupPlayer{
+				ID:              player.ID,
+				Name:            player.Name,
+				Team:            player.Team,
+				Position:        player.Position,
+				Salary:          player.Salary,
+				ProjectedPoints: player.ProjectedPoints,
+			}
+		}
+
+		lineup := types.GeneratedLineup{
+			ID:               fmt.Sprintf("lineup_%d_%s", i+1, uuid.New().String()[:8]),
+			Players:          lineupPlayers,
 			TotalSalary:      candidate.totalSalary,
 			ProjectedPoints:  candidate.projectedPoints,
-			IsOptimized:      true,
-			OptimizationRank: i + 1,
-			Players:          candidate.players,
-			PlayerPositions:  candidate.playerPositions,
+			Exposure:         0.0, // Will be calculated later
+			StackDescription: "", // TODO: Add stack description logic
 		}
-		lineup.CalculateOwnership()
 		result.Lineups = append(result.Lineups, lineup)
 	}
 
@@ -116,13 +127,13 @@ func OptimizeLineups(players []models.Player, config OptimizeConfig) (*Optimizer
 	return result, nil
 }
 
-func filterPlayers(players []models.Player, config OptimizeConfig, logger *logrus.Entry) []models.Player {
+func filterPlayers(players []types.Player, config OptimizeConfig, logger *logrus.Entry) []types.Player {
 	excludeMap := make(map[uint]bool)
 	for _, id := range config.ExcludedPlayers {
 		excludeMap[id] = true
 	}
 
-	filtered := make([]models.Player, 0, len(players))
+	filtered := make([]types.Player, 0, len(players))
 	excludedCount := 0
 	injuredCount := 0
 
@@ -146,8 +157,8 @@ func filterPlayers(players []models.Player, config OptimizeConfig, logger *logru
 	return filtered
 }
 
-func organizeByPosition(players []models.Player, logger *logrus.Entry) map[string][]models.Player {
-	byPosition := make(map[string][]models.Player)
+func organizeByPosition(players []types.Player, logger *logrus.Entry) map[string][]types.Player {
+	byPosition := make(map[string][]types.Player)
 	for _, player := range players {
 		byPosition[player.Position] = append(byPosition[player.Position], player)
 	}
@@ -183,7 +194,7 @@ func organizeByPosition(players []models.Player, logger *logrus.Entry) map[strin
 	return byPosition
 }
 
-func generateValidLineups(playersByPosition map[string][]models.Player, config OptimizeConfig, logger *logrus.Entry) []lineupCandidate {
+func generateValidLineups(playersByPosition map[string][]types.Player, config OptimizeConfig, logger *logrus.Entry) []lineupCandidate {
 	var validLineups []lineupCandidate
 
 	// Early validation
@@ -308,7 +319,7 @@ func generateValidLineups(playersByPosition map[string][]models.Player, config O
 			if isValidLineup(current, config) {
 				// Create a copy and add to results
 				lineupCopy := *current
-				lineupCopy.players = make([]models.Player, len(current.players))
+				lineupCopy.players = make([]types.Player, len(current.players))
 				copy(lineupCopy.players, current.players)
 				// Deep copy playerPositions map
 				lineupCopy.playerPositions = make(map[uint]string)
@@ -409,8 +420,8 @@ func generateValidLineups(playersByPosition map[string][]models.Player, config O
 
 	// Initialize lineup
 	initial := &lineupCandidate{
-		players:         make([]models.Player, 0, len(slots)),
-		positions:       make(map[string][]models.Player),
+		players:         make([]types.Player, 0, len(slots)),
+		positions:       make(map[string][]types.Player),
 		playerPositions: make(map[uint]string),
 	}
 
@@ -441,7 +452,7 @@ func generateValidLineups(playersByPosition map[string][]models.Player, config O
 	return validLineups
 }
 
-func generatePositionCombinations(current *lineupCandidate, players []models.Player, position string, required int, positionOrder []string, posIndex int, config OptimizeConfig, backtrack *func(*lineupCandidate, []string, int)) {
+func generatePositionCombinations(current *lineupCandidate, players []types.Player, position string, required int, positionOrder []string, posIndex int, config OptimizeConfig, backtrack *func(*lineupCandidate, []string, int)) {
 	// Calculate how many we already have for this position
 	existing := len(current.positions[position])
 	needed := required - existing
@@ -453,7 +464,7 @@ func generatePositionCombinations(current *lineupCandidate, players []models.Pla
 	}
 
 	// Try different combinations of players
-	generateCombinations(players, needed, func(combo []models.Player) {
+	generateCombinations(players, needed, func(combo []types.Player) {
 		// Check if any player is already in lineup
 		valid := true
 		for _, player := range combo {
@@ -506,14 +517,14 @@ func generatePositionCombinations(current *lineupCandidate, players []models.Pla
 	})
 }
 
-func generateFlexCombinations(current *lineupCandidate, eligiblePlayers []models.Player, required int, positionOrder []string, posIndex int, config OptimizeConfig, backtrack *func(*lineupCandidate, []string, int)) {
+func generateFlexCombinations(current *lineupCandidate, eligiblePlayers []types.Player, required int, positionOrder []string, posIndex int, config OptimizeConfig, backtrack *func(*lineupCandidate, []string, int)) {
 	if required <= 0 {
 		(*backtrack)(current, positionOrder, posIndex+1)
 		return
 	}
 
 	// For flex positions, we can use players from multiple eligible positions
-	generateCombinations(eligiblePlayers, required, func(combo []models.Player) {
+	generateCombinations(eligiblePlayers, required, func(combo []types.Player) {
 		// Check validity and add similar to regular positions
 		valid := true
 		additionalSalary := 0
@@ -557,8 +568,8 @@ func generateFlexCombinations(current *lineupCandidate, eligiblePlayers []models
 	})
 }
 
-func getFlexEligiblePlayers(playersByPosition map[string][]models.Player, flexType string, current *lineupCandidate) []models.Player {
-	var eligible []models.Player
+func getFlexEligiblePlayers(playersByPosition map[string][]types.Player, flexType string, current *lineupCandidate) []types.Player {
+	var eligible []types.Player
 
 	switch flexType {
 	case "UTIL": // NBA - any position
@@ -716,7 +727,7 @@ func applyDiversityConstraints(lineups []lineupCandidate, config OptimizeConfig)
 
 // Helper functions
 
-func hasPlayer(players []models.Player, playerID uint) bool {
+func hasPlayer(players []types.Player, playerID uint) bool {
 	for _, p := range players {
 		if p.ID == playerID {
 			return true
@@ -734,15 +745,15 @@ func isPlayerLocked(playerID uint, lockedPlayers []uint) bool {
 	return false
 }
 
-func mapToSlice(playerMap map[uint]models.Player) []models.Player {
-	players := make([]models.Player, 0, len(playerMap))
+func mapToSlice(playerMap map[uint]types.Player) []types.Player {
+	players := make([]types.Player, 0, len(playerMap))
 	for _, player := range playerMap {
 		players = append(players, player)
 	}
 	return players
 }
 
-func getPositionOrder(requirements models.PositionRequirements) []string {
+func getPositionOrder(requirements types.PositionRequirements) []string {
 	// Order positions to optimize backtracking
 	positions := make([]string, 0, len(requirements))
 	for pos := range requirements {
@@ -791,7 +802,7 @@ func countDifferentPlayers(lineup1, lineup2 lineupCandidate) int {
 	return different
 }
 
-func generateCombinations(players []models.Player, k int, callback func([]models.Player)) {
+func generateCombinations(players []types.Player, k int, callback func([]types.Player)) {
 	if k > len(players) {
 		return
 	}
@@ -800,7 +811,7 @@ func generateCombinations(players []models.Player, k int, callback func([]models
 	n := len(players)
 	for i := 0; i < (1 << n); i++ {
 		if countBits(i) == k {
-			combo := make([]models.Player, 0, k)
+			combo := make([]types.Player, 0, k)
 			for j := 0; j < n; j++ {
 				if (i>>j)&1 == 1 {
 					combo = append(combo, players[j])
@@ -824,7 +835,7 @@ func getCurrentTimeMs() int64 {
 	return time.Now().UnixNano() / int64(time.Millisecond)
 }
 
-func calculateCorrelationBonus(players []models.Player, weight float64) float64 {
+func calculateCorrelationBonus(players []types.Player, weight float64) float64 {
 	// Simple correlation bonus based on stacking
 	bonus := 0.0
 	teamCounts := make(map[string]int)

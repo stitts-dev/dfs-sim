@@ -21,6 +21,7 @@ import (
 type ServiceProxy struct {
 	golfClient         *ServiceClient
 	optimizationClient *ServiceClient
+	userClient         *ServiceClient
 	circuitBreakers    map[string]*gobreaker.CircuitBreaker
 	logger             *logrus.Logger
 }
@@ -36,14 +37,15 @@ type ServiceClient struct {
 // NewServiceProxy creates a new service proxy
 func NewServiceProxy(cfg *config.Config, logger *logrus.Logger) *ServiceProxy {
 	// Create HTTP clients for each service
-	golfClient := NewServiceClient(cfg.GolfServiceURL, "golf-service", logger)
+	golfClient := NewServiceClient(cfg.GolfServiceURL, "sports-data-service", logger)
 	optimizationClient := NewServiceClient(cfg.OptimizationServiceURL, "optimization-service", logger)
+	userClient := NewServiceClient(cfg.UserServiceURL, "user-service", logger)
 
 	// Create circuit breakers for each service
 	circuitBreakers := make(map[string]*gobreaker.CircuitBreaker)
 	
 	golfCB := gobreaker.NewCircuitBreaker(gobreaker.Settings{
-		Name:        "golf-service",
+		Name:        "sports-data-service",
 		MaxRequests: 3,
 		Interval:    60 * time.Second,
 		Timeout:     10 * time.Second,
@@ -78,12 +80,32 @@ func NewServiceProxy(cfg *config.Config, logger *logrus.Logger) *ServiceProxy {
 		},
 	})
 
-	circuitBreakers["golf-service"] = golfCB
+	userCB := gobreaker.NewCircuitBreaker(gobreaker.Settings{
+		Name:        "user-service",
+		MaxRequests: 3,
+		Interval:    60 * time.Second,
+		Timeout:     10 * time.Second,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
+			return counts.Requests >= 3 && failureRatio >= 0.6
+		},
+		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
+			logger.WithFields(logrus.Fields{
+				"service":    name,
+				"from_state": from,
+				"to_state":   to,
+			}).Warn("Circuit breaker state changed")
+		},
+	})
+
+	circuitBreakers["sports-data-service"] = golfCB
 	circuitBreakers["optimization-service"] = optimizationCB
+	circuitBreakers["user-service"] = userCB
 
 	return &ServiceProxy{
 		golfClient:         golfClient,
 		optimizationClient: optimizationClient,
+		userClient:         userClient,
 		circuitBreakers:    circuitBreakers,
 		logger:             logger,
 	}
@@ -108,12 +130,17 @@ func NewServiceClient(baseURL, serviceName string, logger *logrus.Logger) *Servi
 
 // ProxyGolfRequest proxies requests to the golf service
 func (sp *ServiceProxy) ProxyGolfRequest(c *gin.Context) {
-	sp.proxyRequest(c, sp.golfClient, "golf-service")
+	sp.proxyRequest(c, sp.golfClient, "sports-data-service")
 }
 
 // ProxyOptimizationRequest proxies requests to the optimization service
 func (sp *ServiceProxy) ProxyOptimizationRequest(c *gin.Context) {
 	sp.proxyRequest(c, sp.optimizationClient, "optimization-service")
+}
+
+// ProxyUserRequest proxies requests to the user service
+func (sp *ServiceProxy) ProxyUserRequest(c *gin.Context) {
+	sp.proxyRequest(c, sp.userClient, "user-service")
 }
 
 // proxyRequest handles the actual request proxying with circuit breaker

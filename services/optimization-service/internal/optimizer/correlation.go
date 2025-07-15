@@ -3,7 +3,7 @@ package optimizer
 import (
 	"math"
 
-	"github.com/jstittsworth/dfs-optimizer/internal/models"
+	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
 // CorrelationMatrix represents correlations between players
@@ -15,7 +15,7 @@ type CorrelationMatrix struct {
 }
 
 // NewCorrelationMatrix creates a new correlation matrix from players
-func NewCorrelationMatrix(players []models.Player) *CorrelationMatrix {
+func NewCorrelationMatrix(players []types.Player) *CorrelationMatrix {
 	cm := &CorrelationMatrix{
 		correlations: make(map[uint]map[uint]float64),
 		byTeam:       make(map[string][]uint),
@@ -38,8 +38,8 @@ func NewCorrelationMatrix(players []models.Player) *CorrelationMatrix {
 	return cm
 }
 
-func (cm *CorrelationMatrix) calculateCorrelations(players []models.Player) {
-	playerMap := make(map[uint]models.Player)
+func (cm *CorrelationMatrix) calculateCorrelations(players []types.Player) {
+	playerMap := make(map[uint]types.Player)
 	for _, p := range players {
 		playerMap[p.ID] = p
 	}
@@ -66,7 +66,7 @@ func (cm *CorrelationMatrix) calculateCorrelations(players []models.Player) {
 	}
 }
 
-func (cm *CorrelationMatrix) calculatePairCorrelation(p1, p2 models.Player) float64 {
+func (cm *CorrelationMatrix) calculatePairCorrelation(p1, p2 types.Player) float64 {
 	correlation := 0.0
 
 	// Same team correlation (teammates)
@@ -220,7 +220,7 @@ func (cm *CorrelationMatrix) GetCorrelation(player1ID, player2ID uint) float64 {
 }
 
 // GetTeammates returns all teammates for a player
-func (cm *CorrelationMatrix) GetTeammates(playerID uint, players []models.Player) []uint {
+func (cm *CorrelationMatrix) GetTeammates(playerID uint, players []types.Player) []uint {
 	var playerTeam string
 	for _, p := range players {
 		if p.ID == playerID {
@@ -240,7 +240,7 @@ func (cm *CorrelationMatrix) GetTeammates(playerID uint, players []models.Player
 }
 
 // GetGamePartners returns all players in the same game
-func (cm *CorrelationMatrix) GetGamePartners(playerID uint, players []models.Player) []uint {
+func (cm *CorrelationMatrix) GetGamePartners(playerID uint, players []types.Player) []uint {
 	var gameKey string
 	for _, p := range players {
 		if p.ID == playerID {
@@ -260,7 +260,7 @@ func (cm *CorrelationMatrix) GetGamePartners(playerID uint, players []models.Pla
 }
 
 // CalculateLineupCorrelation calculates the total correlation score for a lineup
-func (cm *CorrelationMatrix) CalculateLineupCorrelation(lineup []models.Player) float64 {
+func (cm *CorrelationMatrix) CalculateLineupCorrelation(lineup []types.Player) float64 {
 	if len(lineup) < 2 {
 		return 0.0
 	}

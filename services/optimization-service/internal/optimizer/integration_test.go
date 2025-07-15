@@ -3,14 +3,14 @@ package optimizer_test
 import (
 	"testing"
 
-	"github.com/jstittsworth/dfs-optimizer/internal/models"
-	"github.com/jstittsworth/dfs-optimizer/internal/optimizer"
+	"github.com/stitts-dev/dfs-sim/shared/types"
+	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/optimizer"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestIntegration_NBA_PositionSlotAssignment(t *testing.T) {
 	// Create NBA players - need enough for all positions including flex
-	players := []models.Player{
+	players := []types.Player{
 		// Point Guards
 		{ID: 1, Name: "Curry", Position: "PG", Salary: 8500, ProjectedPoints: 50.5, Team: "GSW"},
 		{ID: 2, Name: "Morant", Position: "PG", Salary: 7000, ProjectedPoints: 42.0, Team: "MEM"},
@@ -33,12 +33,12 @@ func TestIntegration_NBA_PositionSlotAssignment(t *testing.T) {
 		{ID: 15, Name: "Towns", Position: "C", Salary: 5500, ProjectedPoints: 43.0, Team: "MIN"},
 	}
 
-	contest := &models.Contest{
+	contest := &types.Contest{
 		ID:        1,
 		Sport:     "nba",
 		Platform:  "draftkings",
 		SalaryCap: 50000,
-		PositionRequirements: models.PositionRequirements{
+		PositionRequirements: types.PositionRequirements{
 			"PG":   1,
 			"SG":   1,
 			"SF":   1,
@@ -70,7 +70,7 @@ func TestIntegration_NBA_PositionSlotAssignment(t *testing.T) {
 		usedSlots[slot] = true
 
 		// Find the player
-		var player *models.Player
+		var player *types.Player
 		for _, p := range lineup.Players {
 			if p.ID == playerID {
 				player = &p
@@ -106,7 +106,7 @@ func TestIntegration_NBA_PositionSlotAssignment(t *testing.T) {
 
 func TestIntegration_Golf_SimplePositions(t *testing.T) {
 	// Create Golf players
-	players := []models.Player{
+	players := []types.Player{
 		{ID: 1, Name: "McIlroy", Position: "G", Salary: 9500, ProjectedPoints: 65.0, Team: "NIR"},
 		{ID: 2, Name: "Scheffler", Position: "G", Salary: 10000, ProjectedPoints: 68.0, Team: "USA"},
 		{ID: 3, Name: "Rahm", Position: "G", Salary: 9200, ProjectedPoints: 64.0, Team: "ESP"},
@@ -117,12 +117,12 @@ func TestIntegration_Golf_SimplePositions(t *testing.T) {
 		{ID: 8, Name: "Finau", Position: "G", Salary: 7000, ProjectedPoints: 53.0, Team: "USA"},
 	}
 
-	contest := &models.Contest{
+	contest := &types.Contest{
 		ID:        2,
 		Sport:     "golf",
 		Platform:  "draftkings",
 		SalaryCap: 50000,
-		PositionRequirements: models.PositionRequirements{
+		PositionRequirements: types.PositionRequirements{
 			"G": 6,
 		},
 	}

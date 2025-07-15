@@ -5,34 +5,34 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jstittsworth/dfs-optimizer/internal/models"
+	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
 // GolfCorrelationBuilder builds correlation matrices specific to golf
 type GolfCorrelationBuilder struct {
-	players       []models.Player
-	entries       map[uint]*models.GolfPlayerEntry
-	courseHistory map[uint]*models.GolfCourseHistory
+	players       []types.Player
+	entries       map[uint]*types.GolfPlayerEntry
+	courseHistory map[uint]*types.GolfCourseHistory
 }
 
 // NewGolfCorrelationBuilder creates a new golf correlation builder
-func NewGolfCorrelationBuilder(players []models.Player) *GolfCorrelationBuilder {
+func NewGolfCorrelationBuilder(players []types.Player) *GolfCorrelationBuilder {
 	return &GolfCorrelationBuilder{
 		players:       players,
-		entries:       make(map[uint]*models.GolfPlayerEntry),
-		courseHistory: make(map[uint]*models.GolfCourseHistory),
+		entries:       make(map[uint]*types.GolfPlayerEntry),
+		courseHistory: make(map[uint]*types.GolfCourseHistory),
 	}
 }
 
 // SetPlayerEntries sets the golf-specific player entry data
-func (gb *GolfCorrelationBuilder) SetPlayerEntries(entries []models.GolfPlayerEntry) {
+func (gb *GolfCorrelationBuilder) SetPlayerEntries(entries []types.GolfPlayerEntry) {
 	for _, entry := range entries {
 		gb.entries[entry.PlayerID] = &entry
 	}
 }
 
 // SetCourseHistory sets the course history data for players
-func (gb *GolfCorrelationBuilder) SetCourseHistory(history []models.GolfCourseHistory) {
+func (gb *GolfCorrelationBuilder) SetCourseHistory(history []types.GolfCourseHistory) {
 	for _, h := range history {
 		gb.courseHistory[h.PlayerID] = &h
 	}
@@ -60,7 +60,7 @@ func (gb *GolfCorrelationBuilder) BuildCorrelationMatrix() map[uint]map[uint]flo
 }
 
 // calculateGolfCorrelation calculates correlation between two golf players
-func (gb *GolfCorrelationBuilder) calculateGolfCorrelation(p1, p2 models.Player) float64 {
+func (gb *GolfCorrelationBuilder) calculateGolfCorrelation(p1, p2 types.Player) float64 {
 	correlation := 0.0
 
 	// Get player entries if available
@@ -104,7 +104,7 @@ func (gb *GolfCorrelationBuilder) calculateGolfCorrelation(p1, p2 models.Player)
 }
 
 // haveSameTeeTime checks if two players have the same tee time
-func (gb *GolfCorrelationBuilder) haveSameTeeTime(e1, e2 *models.GolfPlayerEntry) bool {
+func (gb *GolfCorrelationBuilder) haveSameTeeTime(e1, e2 *types.GolfPlayerEntry) bool {
 	if len(e1.TeeTimes) == 0 || len(e2.TeeTimes) == 0 {
 		return false
 	}
@@ -124,7 +124,7 @@ func (gb *GolfCorrelationBuilder) haveSameTeeTime(e1, e2 *models.GolfPlayerEntry
 }
 
 // inSameWave checks if players are in the same wave (AM/PM)
-func (gb *GolfCorrelationBuilder) inSameWave(e1, e2 *models.GolfPlayerEntry) bool {
+func (gb *GolfCorrelationBuilder) inSameWave(e1, e2 *types.GolfPlayerEntry) bool {
 	if len(e1.TeeTimes) == 0 || len(e2.TeeTimes) == 0 {
 		return false
 	}
@@ -142,7 +142,7 @@ func (gb *GolfCorrelationBuilder) inSameWave(e1, e2 *models.GolfPlayerEntry) boo
 }
 
 // areSimilarPosition checks if players are in similar leaderboard positions
-func (gb *GolfCorrelationBuilder) areSimilarPosition(e1, e2 *models.GolfPlayerEntry) bool {
+func (gb *GolfCorrelationBuilder) areSimilarPosition(e1, e2 *types.GolfPlayerEntry) bool {
 	if e1.CurrentPosition == 0 || e2.CurrentPosition == 0 {
 		return false
 	}
@@ -152,13 +152,13 @@ func (gb *GolfCorrelationBuilder) areSimilarPosition(e1, e2 *models.GolfPlayerEn
 }
 
 // sameCountry checks if players are from the same country
-func (gb *GolfCorrelationBuilder) sameCountry(p1, p2 models.Player) bool {
+func (gb *GolfCorrelationBuilder) sameCountry(p1, p2 types.Player) bool {
 	// In golf, Team often represents country
 	return p1.Team == p2.Team && p1.Team != ""
 }
 
 // similarSkillLevel checks if players have similar skill levels based on salary
-func (gb *GolfCorrelationBuilder) similarSkillLevel(p1, p2 models.Player) bool {
+func (gb *GolfCorrelationBuilder) similarSkillLevel(p1, p2 types.Player) bool {
 	salaryDiff := math.Abs(float64(p1.Salary - p2.Salary))
 	avgSalary := float64(p1.Salary+p2.Salary) / 2
 
@@ -196,7 +196,7 @@ func (cm *CorrelationMatrix) getGolfOpponentCorrelation(pos1, pos2 string) float
 }
 
 // getGolfStackingBonus returns bonus correlation for golf stacking strategies
-func getGolfStackingBonus(p1, p2 models.Player) float64 {
+func getGolfStackingBonus(p1, p2 types.Player) float64 {
 	bonus := 0.0
 
 	// Ownership-based negative correlation stacking
@@ -217,7 +217,7 @@ func getGolfStackingBonus(p1, p2 models.Player) float64 {
 }
 
 // Helper function to parse player metadata for golf-specific data
-func getGolfMetadata(player models.Player, key string) string {
+func getGolfMetadata(player types.Player, key string) string {
 	// For now, return empty string as we don't have metadata storage
 	// TODO: Implement proper metadata storage for golf-specific data
 	return ""

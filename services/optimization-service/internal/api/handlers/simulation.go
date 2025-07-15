@@ -6,13 +6,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/simulator"
 	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/websocket"
 	"github.com/stitts-dev/dfs-sim/services/optimization-service/pkg/cache"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/config"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/database"
+	"github.com/stitts-dev/dfs-sim/shared/pkg/simulator"
 	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
@@ -47,45 +48,10 @@ type SimulationRequest struct {
 	Lineups          []types.GeneratedLineup `json:"lineups"`
 	ContestType      string                  `json:"contest_type"` // "gpp" or "cash"
 	Iterations       int                     `json:"iterations"`
-	UserID           uint                    `json:"user_id,omitempty"`
+	UserID           uuid.UUID               `json:"user_id,omitempty"`
 	CorrelationMatrix map[string]float64     `json:"correlation_matrix,omitempty"`
 }
 
-// SimulationResult represents the result of a Monte Carlo simulation
-type SimulationResult struct {
-	ID               string                     `json:"id"`
-	Iterations       int                        `json:"iterations"`
-	ExecutionTime    time.Duration              `json:"execution_time"`
-	LineupResults    []LineupSimulationResult   `json:"lineup_results"`
-	OverallStats     SimulationStats            `json:"overall_stats"`
-	ContestType      string                     `json:"contest_type"`
-	CreatedAt        time.Time                  `json:"created_at"`
-}
-
-// LineupSimulationResult represents simulation results for a single lineup
-type LineupSimulationResult struct {
-	LineupID         string  `json:"lineup_id"`
-	ExpectedScore    float64 `json:"expected_score"`
-	ScoreVariance    float64 `json:"score_variance"`
-	CashRate         float64 `json:"cash_rate"`
-	ROI              float64 `json:"roi"`
-	Top1Percent      float64 `json:"top_1_percent"`
-	Top10Percent     float64 `json:"top_10_percent"`
-	MedianFinish     int     `json:"median_finish"`
-	Ceiling          float64 `json:"ceiling"`
-	Floor            float64 `json:"floor"`
-}
-
-// SimulationStats represents overall simulation statistics
-type SimulationStats struct {
-	TotalLineups     int     `json:"total_lineups"`
-	AverageROI       float64 `json:"average_roi"`
-	BestROI          float64 `json:"best_roi"`
-	WorstROI         float64 `json:"worst_roi"`
-	AverageCashRate  float64 `json:"average_cash_rate"`
-	PortfolioROI     float64 `json:"portfolio_roi"`
-	Sharpe           float64 `json:"sharpe"`
-}
 
 // RunSimulation handles simulation requests
 func (h *SimulationHandler) RunSimulation(c *gin.Context) {
@@ -121,18 +87,52 @@ func (h *SimulationHandler) RunSimulation(c *gin.Context) {
 	defer close(progressChan)
 
 	// Start progress forwarding to WebSocket if user ID provided
-	if req.UserID > 0 {
+	if req.UserID != uuid.Nil {
 		go h.forwardProgressToWebSocket(req.UserID, progressChan)
+	}
+
+	// Convert request lineups to shared types.Lineup format
+	lineups := make([]types.Lineup, len(req.Lineups))
+	for i, reqLineup := range req.Lineups {
+		lineup := types.Lineup{
+			ID:              uuid.New(),
+			TotalSalary:     reqLineup.TotalSalary,
+			ProjectedPoints: reqLineup.ProjectedPoints,
+			Players:         make([]types.LineupPlayer, len(reqLineup.Players)),
+		}
+		
+		for j, player := range reqLineup.Players {
+			lineup.Players[j] = types.LineupPlayer{
+				ID:              player.ID,
+				Name:            player.Name,
+				Position:        player.Position,
+				Team:            player.Team,
+				Salary:          player.Salary,
+				ProjectedPoints: player.ProjectedPoints,
+			}
+		}
+		
+		lineups[i] = lineup
+	}
+
+	// Create a dummy contest for simulation (should come from request in real implementation)
+	contest := types.Contest{
+		Type: req.ContestType,
 	}
 
 	// Initialize simulator
 	sim := simulator.NewMonteCarloSimulator(
-		req.Lineups,
-		req.ContestType,
-		req.CorrelationMatrix,
+		lineups,
+		contest,
+		req.Iterations,
 		h.config.SimulationWorkers,
 		h.logger,
 	)
+	
+	// Set correlation matrix if provided
+	if req.CorrelationMatrix != nil {
+		sim.SetCorrelationMatrix(req.CorrelationMatrix)
+	}
 
 	// Send initial progress update
 	progressChan <- types.ProgressUpdate{
@@ -146,7 +146,7 @@ func (h *SimulationHandler) RunSimulation(c *gin.Context) {
 
 	// Run simulation
 	startTime := time.Now()
-	results, err := sim.Run(req.Iterations, progressChan)
+	results, err := sim.RunSimulation(c.Request.Context(), progressChan)
 	if err != nil {
 		h.logger.WithError(err).Error("Simulation failed")
 		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
@@ -160,12 +160,12 @@ func (h *SimulationHandler) RunSimulation(c *gin.Context) {
 	}
 
 	// Convert results to response format
-	simulationResult := SimulationResult{
+	simulationResult := types.SimulationResult{
 		ID:            simulationID,
-		Iterations:    req.Iterations,
-		ExecutionTime: time.Since(startTime),
-		LineupResults: h.convertLineupResults(results.LineupResults),
-		OverallStats:  h.calculateOverallStats(results.LineupResults),
+		Iterations:    results.SimulationCount,
+		ExecutionTime: results.ExecutionTime,
+		LineupResults: h.convertLineupResults(results.Results),
+		OverallStats:  h.calculateOverallStats(results.Results),
 		ContestType:   req.ContestType,
 		CreatedAt:     time.Now(),
 	}
@@ -261,34 +261,34 @@ func (h *SimulationHandler) validateSimulationRequest(req SimulationRequest) err
 	return nil
 }
 
-func (h *SimulationHandler) forwardProgressToWebSocket(userID uint, progressChan <-chan types.ProgressUpdate) {
+func (h *SimulationHandler) forwardProgressToWebSocket(userID uuid.UUID, progressChan <-chan types.ProgressUpdate) {
 	for progress := range progressChan {
 		h.wsHub.BroadcastToUser(userID, progress)
 	}
 }
 
-func (h *SimulationHandler) convertLineupResults(results []simulator.LineupResult) []LineupSimulationResult {
-	converted := make([]LineupSimulationResult, len(results))
+func (h *SimulationHandler) convertLineupResults(results []simulator.LineupResult) []types.LineupSimulationResult {
+	converted := make([]types.LineupSimulationResult, len(results))
 	for i, result := range results {
-		converted[i] = LineupSimulationResult{
-			LineupID:      result.LineupID,
-			ExpectedScore: result.ExpectedScore,
-			ScoreVariance: result.ScoreVariance,
+		converted[i] = types.LineupSimulationResult{
+			LineupID:      fmt.Sprintf("%d", result.LineupID),
+			ExpectedScore: result.ExpectedPoints,
+			ScoreVariance: result.PointsVariance,
 			CashRate:      result.CashRate,
 			ROI:           result.ROI,
-			Top1Percent:   result.Top1Percent,
-			Top10Percent:  result.Top10Percent,
-			MedianFinish:  result.MedianFinish,
-			Ceiling:       result.Ceiling,
-			Floor:         result.Floor,
+			Top1Percent:   result.TopPercentFinish["top_1_percent"],
+			Top10Percent:  result.TopPercentFinish["top_10_percent"],
+			MedianFinish:  int(result.Percentiles["50th"]),
+			Ceiling:       result.Percentiles["90th"],
+			Floor:         result.Percentiles["10th"],
 		}
 	}
 	return converted
 }
 
-func (h *SimulationHandler) calculateOverallStats(results []simulator.LineupResult) SimulationStats {
+func (h *SimulationHandler) calculateOverallStats(results []simulator.LineupResult) types.SimulationStats {
 	if len(results) == 0 {
-		return SimulationStats{}
+		return types.SimulationStats{}
 	}
 
 	var totalROI, totalCashRate float64
@@ -324,7 +324,7 @@ func (h *SimulationHandler) calculateOverallStats(results []simulator.LineupResu
 		sharpe = avgROI / (variance * variance) // Simplified calculation
 	}
 
-	return SimulationStats{
+	return types.SimulationStats{
 		TotalLineups:    len(results),
 		AverageROI:      avgROI,
 		BestROI:         bestROI,

@@ -5,15 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jstittsworth/dfs-optimizer/internal/models"
-	"github.com/jstittsworth/dfs-optimizer/pkg/logger"
+	"github.com/stitts-dev/dfs-sim/shared/types"
+	"github.com/stitts-dev/dfs-sim/shared/pkg/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOptimizeLineups_NBA_WithFlexPositions(t *testing.T) {
 	// Create test players for NBA with enough for flex positions
-	players := []models.Player{
+	players := []types.Player{
 		// Point Guards
 		{ID: 1, Name: "Curry", Position: "PG", Salary: 8500, ProjectedPoints: 50.5, Team: "GSW"},
 		{ID: 2, Name: "Morant", Position: "PG", Salary: 7000, ProjectedPoints: 42.0, Team: "MEM"},
@@ -36,12 +36,12 @@ func TestOptimizeLineups_NBA_WithFlexPositions(t *testing.T) {
 		{ID: 15, Name: "Towns", Position: "C", Salary: 5500, ProjectedPoints: 43.0, Team: "MIN"},
 	}
 
-	contest := &models.Contest{
+	contest := &types.Contest{
 		ID:        1,
 		Sport:     "nba",
 		Platform:  "draftkings",
 		SalaryCap: 50000,
-		PositionRequirements: models.PositionRequirements{
+		PositionRequirements: types.PositionRequirements{
 			"PG":   1,
 			"SG":   1,
 			"SF":   1,
@@ -78,7 +78,7 @@ func TestOptimizeLineups_NBA_WithFlexPositions(t *testing.T) {
 		positionCounts[position]++
 
 		// Find the player
-		var player *models.Player
+		var player *types.Player
 		for _, p := range lineup.Players {
 			if p.ID == playerID {
 				player = &p
@@ -121,7 +121,7 @@ func TestOptimizeLineups_NBA_WithFlexPositions(t *testing.T) {
 
 func TestOptimizeLineups_Golf_NoFlexPositions(t *testing.T) {
 	// Create test golfers
-	players := []models.Player{
+	players := []types.Player{
 		{ID: 1, Name: "McIlroy", Position: "G", Salary: 9500, ProjectedPoints: 65.0, Team: "NIR"},
 		{ID: 2, Name: "Scheffler", Position: "G", Salary: 10000, ProjectedPoints: 68.0, Team: "USA"},
 		{ID: 3, Name: "Rahm", Position: "G", Salary: 9200, ProjectedPoints: 64.0, Team: "ESP"},
@@ -134,12 +134,12 @@ func TestOptimizeLineups_Golf_NoFlexPositions(t *testing.T) {
 		{ID: 10, Name: "Young", Position: "G", Salary: 6500, ProjectedPoints: 51.0, Team: "USA"},
 	}
 
-	contest := &models.Contest{
+	contest := &types.Contest{
 		ID:        2,
 		Sport:     "golf",
 		Platform:  "draftkings",
 		SalaryCap: 50000,
-		PositionRequirements: models.PositionRequirements{
+		PositionRequirements: types.PositionRequirements{
 			"G": 6, // 6 golfers
 		},
 	}
@@ -174,15 +174,15 @@ func TestOptimizeLineups_Golf_NoFlexPositions(t *testing.T) {
 
 func TestLineupCandidate_PositionTracking(t *testing.T) {
 	candidate := &lineupCandidate{
-		players:         []models.Player{},
+		players:         []types.Player{},
 		playerPositions: make(map[uint]string),
-		positions:       make(map[string][]models.Player),
+		positions:       make(map[string][]types.Player),
 	}
 
 	// Add players with position tracking
-	player1 := models.Player{ID: 1, Name: "Player1", Position: "PG"}
-	player2 := models.Player{ID: 2, Name: "Player2", Position: "SG"}
-	player3 := models.Player{ID: 3, Name: "Player3", Position: "PG"} // Second PG for G flex
+	player1 := types.Player{ID: 1, Name: "Player1", Position: "PG"}
+	player2 := types.Player{ID: 2, Name: "Player2", Position: "SG"}
+	player3 := types.Player{ID: 3, Name: "Player3", Position: "PG"} // Second PG for G flex
 
 	// Simulate adding players to specific slots
 	candidate.players = append(candidate.players, player1)
@@ -204,7 +204,7 @@ func TestLineupCandidate_PositionTracking(t *testing.T) {
 
 func TestGenerateValidLineups_WithPositionConstraints(t *testing.T) {
 	// Test that generateValidLineups respects position constraints
-	players := []models.Player{
+	players := []types.Player{
 		// Only PGs and SGs - should fail to create full NBA lineup
 		{ID: 1, Name: "PG1", Position: "PG", Salary: 8000, ProjectedPoints: 40.0},
 		{ID: 2, Name: "PG2", Position: "PG", Salary: 7000, ProjectedPoints: 35.0},
@@ -212,12 +212,12 @@ func TestGenerateValidLineups_WithPositionConstraints(t *testing.T) {
 		{ID: 4, Name: "SG2", Position: "SG", Salary: 7000, ProjectedPoints: 35.0},
 	}
 
-	contest := &models.Contest{
+	contest := &types.Contest{
 		ID:        3,
 		Sport:     "nba",
 		Platform:  "draftkings",
 		SalaryCap: 50000,
-		PositionRequirements: models.PositionRequirements{
+		PositionRequirements: types.PositionRequirements{
 			"PG":   1,
 			"SG":   1,
 			"SF":   1,
@@ -246,14 +246,14 @@ func TestGenerateValidLineups_WithPositionConstraints(t *testing.T) {
 func TestMultipleLineups_DifferentPlayerConstraint(t *testing.T) {
 	t.Skip("Skipping diversity constraint test - not related to position fix")
 	// Create enough players for multiple different lineups
-	players := make([]models.Player, 0)
+	players := make([]types.Player, 0)
 	positions := []string{"PG", "SG", "SF", "PF", "C"}
 
 	// Create 4 players per position with reasonable salaries
 	playerID := uint(1)
 	for _, pos := range positions {
 		for i := 0; i < 4; i++ {
-			players = append(players, models.Player{
+			players = append(players, types.Player{
 				ID:              playerID,
 				Name:            fmt.Sprintf("%s%d", pos, i+1),
 				Position:        pos,
@@ -265,12 +265,12 @@ func TestMultipleLineups_DifferentPlayerConstraint(t *testing.T) {
 		}
 	}
 
-	contest := &models.Contest{
+	contest := &types.Contest{
 		ID:        4,
 		Sport:     "nba",
 		Platform:  "draftkings",
 		SalaryCap: 50000,
-		PositionRequirements: models.PositionRequirements{
+		PositionRequirements: types.PositionRequirements{
 			"PG":   1,
 			"SG":   1,
 			"SF":   1,
@@ -423,57 +423,57 @@ func TestOptimizeLineups_PerformanceTargets(t *testing.T) {
 }
 
 // Helper function to create benchmark data
-func setupBenchmarkData(sport, platform string, playerCount int) (*models.Contest, []models.Player) {
-	contest := &models.Contest{
+func setupBenchmarkData(sport, platform string, playerCount int) (*types.Contest, []types.Player) {
+	contest := &types.Contest{
 		ID:                   1,
 		Name:                 fmt.Sprintf("Benchmark %s Contest", sport),
 		Sport:                sport,
 		Platform:             platform,
 		SalaryCap:            getSalaryCapForSport(sport),
-		PositionRequirements: make(models.PositionRequirements),
+		PositionRequirements: make(types.PositionRequirements),
 	}
 
 	// Set position requirements based on sport
 	switch sport {
 	case "nba":
 		if platform == "draftkings" {
-			contest.PositionRequirements = models.PositionRequirements{
+			contest.PositionRequirements = types.PositionRequirements{
 				"PG": 1, "SG": 1, "SF": 1, "PF": 1, "C": 1, "G": 1, "F": 1, "UTIL": 1,
 			}
 		}
 	case "nfl":
 		if platform == "draftkings" {
-			contest.PositionRequirements = models.PositionRequirements{
+			contest.PositionRequirements = types.PositionRequirements{
 				"QB": 1, "RB": 2, "WR": 3, "TE": 1, "FLEX": 1, "DST": 1,
 			}
 		}
 	case "mlb":
 		if platform == "draftkings" {
-			contest.PositionRequirements = models.PositionRequirements{
+			contest.PositionRequirements = types.PositionRequirements{
 				"P": 2, "C": 1, "1B": 1, "2B": 1, "3B": 1, "SS": 1, "OF": 3,
 			}
 		}
 	case "nhl":
 		if platform == "draftkings" {
-			contest.PositionRequirements = models.PositionRequirements{
+			contest.PositionRequirements = types.PositionRequirements{
 				"C": 2, "W": 3, "D": 2, "G": 1, "UTIL": 1,
 			}
 		}
 	case "golf":
-		contest.PositionRequirements = models.PositionRequirements{
+		contest.PositionRequirements = types.PositionRequirements{
 			"G": 6,
 		}
 	}
 
 	positions := getPositionsForSport(sport)
-	players := make([]models.Player, 0, playerCount)
+	players := make([]types.Player, 0, playerCount)
 
 	// Create players distributed across positions
 	for i := 0; i < playerCount; i++ {
 		position := positions[i%len(positions)]
 		salary := 3000 + (i%10)*1000 // Salaries from $3k to $12k
 
-		player := models.Player{
+		player := types.Player{
 			ID:              uint(i + 1),
 			ContestID:       contest.ID,
 			Name:            fmt.Sprintf("%s Player %d", position, i),

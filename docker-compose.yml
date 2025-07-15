@@ -1,28 +1,15 @@
 version: '3.8'
 
 services:
-  postgres:
-    image: postgres:15-alpine
-    container_name: dfs_postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: dfs_optimizer
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # NOTE: PostgreSQL removed - all services now use Supabase PostgreSQL
 
+  # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: dfs_redis
+    container_name: dfs-redis
     ports:
       - "6379:6379"
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     healthcheck:
@@ -30,54 +17,216 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - dfs-network
 
-  backend:
+  # Sports Data Service (formerly Golf Service)
+  sports-data-service:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: dfs_backend
+      context: .
+      dockerfile: services/sports-data-service/Dockerfile
+    container_name: dfs-sports-data-service
     environment:
-      PORT: 8080
-      ENV: development
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/dfs_optimizer?sslmode=disable
-      REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: dev-secret-key
-      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
-      BALLDONTLIE_API_KEY: ${BALLDONTLIE_API_KEY:-demo-key}
-      THESPORTSDB_API_KEY: ${THESPORTSDB_API_KEY:-123}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      # SMS Configuration
-      SMS_PROVIDER: ${SMS_PROVIDER:-mock}
-      # Supabase Configuration
-      SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
-      # Twilio Configuration
-      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
-      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
-      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER}
+      - SERVICE_NAME=sports-data
+      - PORT=8081
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379/${REDIS_GOLF_DB:-0}
+      - RAPIDAPI_KEY=${RAPIDAPI_KEY}
+      - ESPN_RATE_LIMIT=10
+      - CIRCUIT_BREAKER_THRESHOLD=5
+      - LOG_LEVEL=info
+      - ENV=production
+      # Enable background data fetching
+      - ENABLE_BACKGROUND_JOBS=true
+      - DATA_FETCH_INTERVAL=30m
+      - SKIP_INITIAL_DATA_FETCH=false
+      - SKIP_INITIAL_GOLF_SYNC=false
+      - SKIP_INITIAL_CONTEST_DISCOVERY=false
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - ./services/sports-data-service/migrations:/app/migrations
+    networks:
+      - dfs-network
+    restart: unless-stopped
+
+  # Optimization Service
+  optimization-service:
+    build:
+      context: .
+      dockerfile: services/optimization-service/Dockerfile
+    container_name: dfs-optimization-service
+    environment:
+      - SERVICE_NAME=optimization
+      - PORT=8082
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379/${REDIS_OPTIMIZATION_DB:-1}
+      - MAX_LINEUPS=150
+      - OPTIMIZATION_TIMEOUT=30
+      - MAX_SIMULATIONS=100000
+      - SIMULATION_WORKERS=4
+      - LOG_LEVEL=info
+      - ENV=production
+    ports:
+      - "8082:8082"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - dfs-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+
+  # User Service
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    container_name: dfs-user-service
+    environment:
+      - SERVICE_NAME=user
+      - PORT=8083
+      - SMS_PROVIDER=${SMS_PROVIDER:-supabase}
+      - DATABASE_URL=${USER_DATABASE_URL}
+      - REDIS_URL=redis://redis:6379/${REDIS_USER_DB:-3}
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_FROM_NUMBER=${TWILIO_FROM_NUMBER}
+      - LOG_LEVEL=info
+      - ENV=production
+    ports:
+      - "8083:8083"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8083/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    volumes:
+      - ./services/user-service/migrations:/app/migrations
+    networks:
+      - dfs-network
+    restart: unless-stopped
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    container_name: dfs-api-gateway
+    environment:
+      - SERVICE_NAME=gateway
+      - PORT=8080
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379/${REDIS_GATEWAY_DB:-2}
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:80
+      - GOLF_SERVICE_URL=http://sports-data-service:8081
+      - OPTIMIZATION_SERVICE_URL=http://optimization-service:8082
+      - USER_SERVICE_URL=http://user-service:8083
+      - LOG_LEVEL=info
+      - ENV=production
+      # Enable background data fetching
+      - ENABLE_BACKGROUND_JOBS=true
+      - DATA_FETCH_INTERVAL=30m
+      - RAPIDAPI_KEY=${RAPIDAPI_KEY}
+      - ESPN_RATE_LIMIT=10
+      - BALLDONTLIE_API_KEY=${BALLDONTLIE_API_KEY}
+      - THESPORTSDB_API_KEY=${THESPORTSDB_API_KEY}
     ports:
       - "8080:8080"
     depends_on:
-      postgres:
+      sports-data-service:
+        condition: service_healthy
+      optimization-service:
+        condition: service_healthy
+      user-service:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - dfs-network
+    restart: unless-stopped
 
+  # NGINX Load Balancer
+  nginx:
+    image: nginx:alpine
+    container_name: dfs-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./services/api-gateway/config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - dfs-network
+    restart: unless-stopped
+
+  # Frontend (Optional - for development)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        VITE_API_URL: http://localhost:8080/api/v1
-        VITE_SUPABASE_URL: ${SUPABASE_URL}
-        VITE_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
-    container_name: dfs_frontend
+    container_name: dfs-frontend
+    environment:
+      - VITE_API_URL=http://localhost/api/v1
+      - VITE_WS_URL=ws://localhost/ws
     ports:
       - "5173:5173"
     depends_on:
-      - backend
+      - nginx
+    networks:
+      - dfs-network
+    profiles:
+      - frontend
 
 volumes:
-  postgres_data:
   redis_data:
+    driver: local
+
+networks:
+  dfs-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

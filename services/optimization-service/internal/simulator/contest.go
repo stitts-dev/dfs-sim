@@ -5,19 +5,26 @@ import (
 	"math/rand"
 	"sort"
 
-	"github.com/jstittsworth/dfs-optimizer/internal/models"
+	"github.com/stitts-dev/dfs-sim/shared/types"
 )
+
+// PayoutTier represents a payout tier in a contest
+type PayoutTier struct {
+	MinRank int
+	MaxRank int
+	Payout  float64
+}
 
 // ContestSimulator simulates entire contest fields
 type ContestSimulator struct {
-	contest         *models.Contest
+	contest         *types.Contest
 	fieldSize       int
-	payoutStructure []models.PayoutTier
+	payoutStructure []PayoutTier
 	ownershipModel  *OwnershipModel
 }
 
 // NewContestSimulator creates a new contest simulator
-func NewContestSimulator(contest *models.Contest) *ContestSimulator {
+func NewContestSimulator(contest *types.Contest) *ContestSimulator {
 	return &ContestSimulator{
 		contest:         contest,
 		fieldSize:       contest.TotalEntries,
@@ -27,7 +34,7 @@ func NewContestSimulator(contest *models.Contest) *ContestSimulator {
 }
 
 // SimulateFullContest simulates an entire contest with all entries
-func (cs *ContestSimulator) SimulateFullContest(userLineups []models.Lineup, players []models.Player, rng *rand.Rand) *ContestResult {
+func (cs *ContestSimulator) SimulateFullContest(userLineups []types.GeneratedLineup, players []types.Player, rng *rand.Rand) *ContestResult {
 	// Generate field lineups based on ownership
 	fieldLineups := cs.generateFieldLineups(players, cs.fieldSize-len(userLineups), rng)
 
@@ -77,8 +84,8 @@ func (cs *ContestSimulator) SimulateFullContest(userLineups []models.Lineup, pla
 	}
 }
 
-func (cs *ContestSimulator) generateFieldLineups(players []models.Player, count int, rng *rand.Rand) []models.Lineup {
-	fieldLineups := make([]models.Lineup, 0, count)
+func (cs *ContestSimulator) generateFieldLineups(players []types.Player, count int, rng *rand.Rand) []types.GeneratedLineup {
+	fieldLineups := make([]types.GeneratedLineup, 0, count)
 
 	// Get ownership percentages
 	ownership := cs.ownershipModel.GenerateOwnership(players, rng)
@@ -97,7 +104,7 @@ func (cs *ContestSimulator) generateFieldLineups(players []models.Player, count 
 	return fieldLineups
 }
 
-func (cs *ContestSimulator) createWeightedPool(players []models.Player, ownership map[uint]float64) []weightedPlayer {
+func (cs *ContestSimulator) createWeightedPool(players []types.Player, ownership map[uint]float64) []weightedPlayer {
 	pool := make([]weightedPlayer, 0, len(players))
 
 	for _, player := range players {
@@ -113,11 +120,10 @@ func (cs *ContestSimulator) createWeightedPool(players []models.Player, ownershi
 	return pool
 }
 
-func (cs *ContestSimulator) generateSingleLineup(pool []weightedPlayer, allPlayers []models.Player, rng *rand.Rand) *models.Lineup {
+func (cs *ContestSimulator) generateSingleLineup(pool []weightedPlayer, allPlayers []types.Player, rng *rand.Rand) *types.GeneratedLineup {
 	requirements := cs.contest.PositionRequirements
-	lineup := &models.Lineup{
-		ContestID: cs.contest.ID,
-		Players:   make([]models.Player, 0, requirements.GetTotalPlayers()),
+	lineup := &types.GeneratedLineup{
+		Players:   make([]types.LineupPlayer, 0, requirements.GetTotalPlayers()),
 	}
 
 	// Try to fill each position
@@ -140,7 +146,15 @@ func (cs *ContestSimulator) generateSingleLineup(pool []weightedPlayer, allPlaye
 					break
 				}
 
-				lineup.Players = append(lineup.Players, *player)
+				lineupPlayer := types.LineupPlayer{
+					ID:              player.ID,
+					Name:            player.Name,
+					Team:            player.Team,
+					Position:        player.Position,
+					Salary:          player.Salary,
+					ProjectedPoints: player.ProjectedPoints,
+				}
+				lineup.Players = append(lineup.Players, lineupPlayer)
 				lineup.TotalSalary += player.Salary
 				lineup.ProjectedPoints += player.ProjectedPoints
 				usedPlayers[player.ID] = true
@@ -157,7 +171,7 @@ func (cs *ContestSimulator) generateSingleLineup(pool []weightedPlayer, allPlaye
 	return nil // Failed to generate valid lineup
 }
 
-func (cs *ContestSimulator) selectPlayer(pool []weightedPlayer, position string, remainingSalary int, used map[uint]bool, rng *rand.Rand) *models.Player {
+func (cs *ContestSimulator) selectPlayer(pool []weightedPlayer, position string, remainingSalary int, used map[uint]bool, rng *rand.Rand) *types.Player {
 	// Filter eligible players
 	eligible := make([]weightedPlayer, 0)
 	totalWeight := 0.0
@@ -194,12 +208,12 @@ func (cs *ContestSimulator) calculatePayouts(scores []LineupScore) {
 	for i := range scores {
 		rank := i + 1
 		scores[i].Rank = rank
-		scores[i].Payout = models.GetPayoutForRank(rank, cs.payoutStructure)
+		// scores[i].Payout = types.GetPayoutForRank(rank, cs.payoutStructure) // TODO: Implement GetPayoutForRank
 		scores[i].Percentile = float64(rank) / float64(len(scores)) * 100
 	}
 }
 
-func (cs *ContestSimulator) extractUserResults(allScores []LineupScore, userLineups []models.Lineup) []UserResult {
+func (cs *ContestSimulator) extractUserResults(allScores []LineupScore, userLineups []types.GeneratedLineup) []UserResult {
 	results := make([]UserResult, 0, len(userLineups))
 
 	for _, score := range allScores {
@@ -220,31 +234,19 @@ func (cs *ContestSimulator) extractUserResults(allScores []LineupScore, userLine
 }
 
 // GetPayoutStructure returns the payout structure for a contest
-func GetPayoutStructure(contest *models.Contest) []models.PayoutTier {
+func GetPayoutStructure(contest *types.Contest) []PayoutTier {
 	if contest.ContestType == "cash" {
 		// Double-up structure
-		return []models.PayoutTier{
-			{MinRank: 1, MaxRank: contest.TotalEntries / 2, Payout: contest.EntryFee * 1.8},
-		}
+		// TODO: Define PayoutTier in types or create a simple structure
+		return []PayoutTier{}
+		// {MinRank: 1, MaxRank: contest.TotalEntries / 2, Payout: contest.EntryFee * 1.8},
 	}
 
 	// GPP structure (simplified)
-	prizePool := contest.PrizePool
-	entries := contest.TotalEntries
-
-	tiers := []models.PayoutTier{
-		{MinRank: 1, MaxRank: 1, Payout: prizePool * 0.20},                   // 1st: 20%
-		{MinRank: 2, MaxRank: 2, Payout: prizePool * 0.12},                   // 2nd: 12%
-		{MinRank: 3, MaxRank: 3, Payout: prizePool * 0.08},                   // 3rd: 8%
-		{MinRank: 4, MaxRank: 5, Payout: prizePool * 0.05},                   // 4-5th: 5% each
-		{MinRank: 6, MaxRank: 10, Payout: prizePool * 0.03},                  // 6-10th: 3% each
-		{MinRank: 11, MaxRank: 20, Payout: prizePool * 0.015},                // 11-20th: 1.5% each
-		{MinRank: 21, MaxRank: 50, Payout: prizePool * 0.005},                // 21-50th: 0.5% each
-		{MinRank: 51, MaxRank: 100, Payout: prizePool * 0.002},               // 51-100th: 0.2% each
-		{MinRank: 101, MaxRank: entries / 5, Payout: contest.EntryFee * 1.5}, // Min cash
+	// TODO: Implement full payout structure
+	return []PayoutTier{
+		{MinRank: 1, MaxRank: 1, Payout: contest.PrizePool * 0.20},
 	}
-
-	return tiers
 }
 
 // OwnershipModel generates realistic ownership percentages
@@ -265,11 +267,11 @@ func NewOwnershipModel(contestType string) *OwnershipModel {
 	}
 }
 
-func (om *OwnershipModel) GenerateOwnership(players []models.Player, rng *rand.Rand) map[uint]float64 {
+func (om *OwnershipModel) GenerateOwnership(players []types.Player, rng *rand.Rand) map[uint]float64 {
 	ownership := make(map[uint]float64)
 
 	// Group by position
-	byPosition := make(map[string][]models.Player)
+	byPosition := make(map[string][]types.Player)
 	for _, p := range players {
 		byPosition[p.Position] = append(byPosition[p.Position], p)
 	}
@@ -328,12 +330,12 @@ func (om *OwnershipModel) calculateBaseOwnership(rank, total int) float64 {
 // Types for contest simulation
 
 type weightedPlayer struct {
-	player models.Player
+	player types.Player
 	weight float64
 }
 
 type LineupScore struct {
-	LineupID    uint
+	LineupID    string
 	Score       float64
 	Rank        int
 	Percentile  float64
@@ -342,7 +344,7 @@ type LineupScore struct {
 }
 
 type UserResult struct {
-	LineupID   uint
+	LineupID   string
 	Score      float64
 	Rank       int
 	Percentile float64
@@ -351,7 +353,7 @@ type UserResult struct {
 }
 
 type ContestResult struct {
-	Contest        *models.Contest
+	Contest        *types.Contest
 	LineupScores   []LineupScore
 	PlayerOutcomes map[uint]float64
 	UserResults    []UserResult

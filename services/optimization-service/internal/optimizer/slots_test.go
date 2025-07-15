@@ -3,7 +3,7 @@ package optimizer
 import (
 	"testing"
 
-	"github.com/jstittsworth/dfs-optimizer/internal/models"
+	"github.com/stitts-dev/dfs-sim/shared/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -61,37 +61,37 @@ func TestGetPositionSlots_Golf(t *testing.T) {
 func TestCanPlayerFillSlot(t *testing.T) {
 	tests := []struct {
 		name     string
-		player   models.Player
+		player   types.Player
 		slot     PositionSlot
 		expected bool
 	}{
 		{
 			name:     "PG can fill PG slot",
-			player:   models.Player{Position: "PG"},
+			player:   types.Player{Position: "PG"},
 			slot:     PositionSlot{SlotName: "PG", AllowedPositions: []string{"PG"}},
 			expected: true,
 		},
 		{
 			name:     "PG can fill G flex slot",
-			player:   models.Player{Position: "PG"},
+			player:   types.Player{Position: "PG"},
 			slot:     PositionSlot{SlotName: "G", AllowedPositions: []string{"PG", "SG"}},
 			expected: true,
 		},
 		{
 			name:     "PG can fill UTIL slot",
-			player:   models.Player{Position: "PG"},
+			player:   types.Player{Position: "PG"},
 			slot:     PositionSlot{SlotName: "UTIL", AllowedPositions: []string{"PG", "SG", "SF", "PF", "C"}},
 			expected: true,
 		},
 		{
 			name:     "PG cannot fill F slot",
-			player:   models.Player{Position: "PG"},
+			player:   types.Player{Position: "PG"},
 			slot:     PositionSlot{SlotName: "F", AllowedPositions: []string{"SF", "PF"}},
 			expected: false,
 		},
 		{
 			name:     "C cannot fill G slot",
-			player:   models.Player{Position: "C"},
+			player:   types.Player{Position: "C"},
 			slot:     PositionSlot{SlotName: "G", AllowedPositions: []string{"PG", "SG"}},
 			expected: false,
 		},
@@ -107,7 +107,7 @@ func TestCanPlayerFillSlot(t *testing.T) {
 
 func TestAssignPlayersToSlots(t *testing.T) {
 	// Test NBA lineup with flex positions
-	players := []models.Player{
+	players := []types.Player{
 		{ID: 1, Name: "Curry", Position: "PG"},
 		{ID: 2, Name: "Harden", Position: "SG"},
 		{ID: 3, Name: "LeBron", Position: "SF"},
@@ -145,7 +145,7 @@ func TestAssignPlayersToSlots(t *testing.T) {
 
 func TestAssignPlayersToSlots_InsufficientPlayers(t *testing.T) {
 	// Not enough players to fill all slots
-	players := []models.Player{
+	players := []types.Player{
 		{ID: 1, Name: "Curry", Position: "PG"},
 		{ID: 2, Name: "Harden", Position: "SG"},
 		{ID: 3, Name: "LeBron", Position: "SF"},
@@ -160,7 +160,7 @@ func TestAssignPlayersToSlots_InsufficientPlayers(t *testing.T) {
 
 func TestAssignPlayersToSlots_NoValidAssignment(t *testing.T) {
 	// Players that can't fill required positions
-	players := []models.Player{
+	players := []types.Player{
 		{ID: 1, Name: "Player1", Position: "PG"},
 		{ID: 2, Name: "Player2", Position: "PG"},
 		{ID: 3, Name: "Player3", Position: "PG"},
@@ -180,7 +180,7 @@ func TestAssignPlayersToSlots_NoValidAssignment(t *testing.T) {
 
 func TestFlexPositionPriority(t *testing.T) {
 	// Test that concrete positions are filled before flex
-	players := []models.Player{
+	players := []types.Player{
 		{ID: 1, Name: "Curry", Position: "PG"},
 		{ID: 2, Name: "Morant", Position: "PG"}, // Should go to G flex
 		{ID: 3, Name: "Harden", Position: "SG"},

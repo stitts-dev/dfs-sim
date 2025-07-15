@@ -4,7 +4,7 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/jstittsworth/dfs-optimizer/internal/models"
+	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
 // Distribution represents a probability distribution for player performance
@@ -127,12 +127,12 @@ func (d *BetaDistribution) StdDev() float64 {
 
 // PlayerDistribution creates appropriate distribution for a player
 type PlayerDistribution struct {
-	player       models.Player
+	player       types.Player
 	distribution Distribution
 	injuryProb   float64
 }
 
-func NewPlayerDistribution(player models.Player) *PlayerDistribution {
+func NewPlayerDistribution(player types.Player) *PlayerDistribution {
 	// Calculate parameters from player stats
 	mean := player.ProjectedPoints
 

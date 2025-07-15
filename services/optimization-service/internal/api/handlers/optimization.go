@@ -1,20 +1,20 @@
 package handlers
 
 import (
-	"context"
 	"crypto/md5"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/optimizer"
 	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/websocket"
 	"github.com/stitts-dev/dfs-sim/services/optimization-service/pkg/cache"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/config"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/database"
+	"github.com/stitts-dev/dfs-sim/shared/pkg/optimizer"
 	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
@@ -73,7 +73,7 @@ func (h *OptimizationHandler) OptimizeLineups(c *gin.Context) {
 	defer close(progressChan)
 
 	// Start progress forwarding to WebSocket if user ID provided
-	if req.UserID > 0 {
+	if req.UserID != uuid.Nil {
 		go h.forwardProgressToWebSocket(req.UserID, progressChan)
 	}
 
@@ -107,7 +107,21 @@ func (h *OptimizationHandler) OptimizeLineups(c *gin.Context) {
 
 	// Run optimization with progress tracking
 	startTime := time.Now()
-	result, err := opt.OptimizeWithProgress(req.Settings, progressChan)
+	
+	// Convert request settings to optimizer settings
+	settings := optimizer.OptimizationSettings{
+		MaxLineups:          req.Settings.MaxLineups,
+		MinDifferentPlayers: req.Settings.MinDifferentPlayers,
+		UseCorrelations:     req.Settings.UseCorrelations,
+		CorrelationWeight:   req.Settings.CorrelationWeight,
+		StackingRules:       req.Settings.StackingRules,
+		LockedPlayers:       req.Settings.LockedPlayers,
+		ExcludedPlayers:     req.Settings.ExcludedPlayers,
+		MinExposure:         req.Settings.MinExposure,
+		MaxExposure:         req.Settings.MaxExposure,
+	}
+	
+	result, err := opt.OptimizeWithProgress(settings, progressChan)
 	if err != nil {
 		h.logger.WithError(err).Error("Optimization failed")
 		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
@@ -120,10 +134,44 @@ func (h *OptimizationHandler) OptimizeLineups(c *gin.Context) {
 		return
 	}
 
+	// Convert lineups to GeneratedLineup format
+	generatedLineups := make([]types.GeneratedLineup, len(result.Lineups))
+	for i, lineup := range result.Lineups {
+		generatedLineups[i] = types.GeneratedLineup{
+			ID:              fmt.Sprintf("%d", lineup.ID),
+			Players:         lineup.Players,
+			TotalSalary:     lineup.TotalSalary,
+			ProjectedPoints: lineup.ProjectedPoints,
+			Exposure:        1.0 / float64(len(result.Lineups)), // Equal exposure
+		}
+	}
+
+	// Convert metadata
+	metadata := types.OptimizationMetadata{
+		TotalLineups:     len(result.Lineups),
+		ExecutionTime:    result.Metadata.ExecutionTime,
+		AverageUniqueess: 0.8, // Placeholder
+		TopProjection:    0.0, // Placeholder
+		AverageProjection: 0.0, // Placeholder
+		StacksGenerated:  0, // Placeholder
+	}
+
+	// Calculate average projection
+	totalProjection := 0.0
+	for _, lineup := range result.Lineups {
+		totalProjection += lineup.ProjectedPoints
+		if lineup.ProjectedPoints > metadata.TopProjection {
+			metadata.TopProjection = lineup.ProjectedPoints
+		}
+	}
+	if len(result.Lineups) > 0 {
+		metadata.AverageProjection = totalProjection / float64(len(result.Lineups))
+	}
+
 	// Create response
 	response := types.OptimizationResult{
-		Lineups:           result.Lineups,
-		Metadata:          result.Metadata,
+		Lineups:           generatedLineups,
+		Metadata:          metadata,
 		CorrelationMatrix: correlationMatrix,
 	}
 
@@ -200,7 +248,7 @@ func (h *OptimizationHandler) generateCacheKey(req types.OptimizationRequest) st
 	return fmt.Sprintf("optimization:%d:%x", req.ContestID, hash.Sum(nil))
 }
 
-func (h *OptimizationHandler) forwardProgressToWebSocket(userID uint, progressChan <-chan types.ProgressUpdate) {
+func (h *OptimizationHandler) forwardProgressToWebSocket(userID uuid.UUID, progressChan <-chan types.ProgressUpdate) {
 	for progress := range progressChan {
 		h.wsHub.BroadcastToUser(userID, progress)
 	}

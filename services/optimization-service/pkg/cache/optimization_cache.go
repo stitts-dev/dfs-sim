@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 
-	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/api/handlers"
 	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
@@ -73,7 +72,7 @@ func (c *OptimizationCacheService) GetOptimizationResult(ctx context.Context, ke
 }
 
 // SetSimulationResult stores a simulation result in cache
-func (c *OptimizationCacheService) SetSimulationResult(ctx context.Context, key string, result *handlers.SimulationResult, expiration time.Duration) error {
+func (c *OptimizationCacheService) SetSimulationResult(ctx context.Context, key string, result *types.SimulationResult, expiration time.Duration) error {
 	data, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("failed to marshal simulation result: %w", err)
@@ -94,7 +93,7 @@ func (c *OptimizationCacheService) SetSimulationResult(ctx context.Context, key 
 }
 
 // GetSimulationResult retrieves a simulation result from cache
-func (c *OptimizationCacheService) GetSimulationResult(ctx context.Context, key string) (*handlers.SimulationResult, error) {
+func (c *OptimizationCacheService) GetSimulationResult(ctx context.Context, key string) (*types.SimulationResult, error) {
 	data, err := c.client.Get(ctx, key).Result()
 	if err != nil {
 		if err == redis.Nil {
@@ -103,7 +102,7 @@ func (c *OptimizationCacheService) GetSimulationResult(ctx context.Context, key 
 		return nil, fmt.Errorf("failed to get simulation result from cache: %w", err)
 	}
 
-	var result handlers.SimulationResult
+	var result types.SimulationResult
 	if err := json.Unmarshal([]byte(data), &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal simulation result: %w", err)
 	}

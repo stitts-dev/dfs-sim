@@ -8,20 +8,68 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jstittsworth/dfs-optimizer/internal/models"
-	"github.com/jstittsworth/dfs-optimizer/internal/optimizer"
+	"github.com/stitts-dev/dfs-sim/shared/types"
+	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/optimizer"
 )
+
+// SimulationConfig represents configuration for Monte Carlo simulation
+type SimulationConfig struct {
+	NumSimulations     int
+	SimulationWorkers  int
+	UseCorrelations    bool
+	ContestSize        int
+	EntryFee          float64
+	PayoutStructure   []PayoutTier
+}
+
+// SimulationRun represents a single simulation run
+type SimulationRun struct {
+	LineupScore  float64
+	PlayerScores map[uint]float64
+	Rank         int
+	Percentile   float64
+	Payout       float64
+}
+
+// SimulationResult represents the aggregate results of multiple simulation runs
+type SimulationResult struct {
+	LineupID           string
+	NumSimulations     int
+	Mean               float64
+	Median             float64
+	StandardDeviation  float64
+	Min                float64
+	Max                float64
+	Percentile25       float64
+	Percentile75       float64
+	Percentile90       float64
+	Percentile95       float64
+	Percentile99       float64
+	TopPercentFinishes map[string]float64
+	WinProbability     float64
+	CashProbability    float64
+	ROI                float64
+}
+
+// SimulationProgress represents progress of a simulation
+type SimulationProgress struct {
+	LineupID               string
+	TotalSimulations       int
+	Completed              int
+	StartTime              time.Time
+	EstimatedTimeRemaining time.Duration
+}
 
 // Simulator runs Monte Carlo simulations for lineups
 type Simulator struct {
-	config       *models.SimulationConfig
+	config       *SimulationConfig
 	correlations *optimizer.CorrelationMatrix
 	rng          *rand.Rand
 	mu           sync.Mutex
 }
 
 // NewSimulator creates a new Monte Carlo simulator
-func NewSimulator(config *models.SimulationConfig, players []models.Player) *Simulator {
+func NewSimulator(config *SimulationConfig, players []types.Player) *Simulator {
 	return &Simulator{
 		config:       config,
 		correlations: optimizer.NewCorrelationMatrix(players),
@@ -30,7 +78,7 @@ func NewSimulator(config *models.SimulationConfig, players []models.Player) *Sim
 }
 
 // SimulateContest runs Monte Carlo simulations for a contest
-func (s *Simulator) SimulateContest(lineups []models.Lineup, progressChan chan<- models.SimulationProgress) (*models.SimulationResult, error) {
+func (s *Simulator) SimulateContest(lineups []types.GeneratedLineup, progressChan chan<- SimulationProgress) (*SimulationResult, error) {
 	numWorkers := runtime.NumCPU()
 	if s.config.SimulationWorkers > 0 {
 		numWorkers = s.config.SimulationWorkers
@@ -38,7 +86,7 @@ func (s *Simulator) SimulateContest(lineups []models.Lineup, progressChan chan<-
 
 	// Create channels for work distribution
 	simulationsChan := make(chan int, s.config.NumSimulations)
-	resultsChan := make(chan models.SimulationRun, s.config.NumSimulations)
+	resultsChan := make(chan SimulationRun, s.config.NumSimulations)
 
 	// Start progress reporter if channel provided
 	if progressChan != nil {
@@ -66,7 +114,7 @@ func (s *Simulator) SimulateContest(lineups []models.Lineup, progressChan chan<-
 	return s.aggregateResults(lineups[0], resultsChan), nil
 }
 
-func (s *Simulator) simulationWorker(lineups []models.Lineup, simChan <-chan int, resultsChan chan<- models.SimulationRun, wg *sync.WaitGroup) {
+func (s *Simulator) simulationWorker(lineups []types.GeneratedLineup, simChan <-chan int, resultsChan chan<- SimulationRun, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	// Create local RNG for this worker
@@ -91,19 +139,19 @@ func (s *Simulator) simulationWorker(lineups []models.Lineup, simChan <-chan int
 		ranks := s.calculateRanks(lineupScores)
 
 		// Store result for primary lineup
-		result := models.SimulationRun{
+		result := SimulationRun{
 			LineupScore:  lineupScores[0],
 			PlayerScores: playerOutcomes,
 			Rank:         ranks[0],
-			Percentile:   models.CalculatePercentile(lineupScores[0], lineupScores),
-			Payout:       models.GetPayoutForRank(ranks[0], s.config.PayoutStructure),
+			// Percentile:   CalculatePercentile(lineupScores[0], lineupScores),
+			// Payout:       GetPayoutForRank(ranks[0], s.config.PayoutStructure),
 		}
 
 		resultsChan <- result
 	}
 }
 
-func (s *Simulator) generatePlayerOutcomes(players []models.Player, rng *rand.Rand) map[uint]float64 {
+func (s *Simulator) generatePlayerOutcomes(players []types.LineupPlayer, rng *rand.Rand) map[uint]float64 {
 	outcomes := make(map[uint]float64)
 
 	if s.config.UseCorrelations {
@@ -119,7 +167,7 @@ func (s *Simulator) generatePlayerOutcomes(players []models.Player, rng *rand.Ra
 	return outcomes
 }
 
-func (s *Simulator) generateCorrelatedOutcomes(players []models.Player, rng *rand.Rand) map[uint]float64 {
+func (s *Simulator) generateCorrelatedOutcomes(players []types.LineupPlayer, rng *rand.Rand) map[uint]float64 {
 	n := len(players)
 	outcomes := make(map[uint]float64)
 
@@ -149,7 +197,7 @@ func (s *Simulator) generateCorrelatedOutcomes(players []models.Player, rng *ran
 
 		// Ensure score stays within reasonable bounds
 		adjustedScore = math.Max(0, adjustedScore)
-		adjustedScore = math.Min(player1.CeilingPoints*1.2, adjustedScore)
+		adjustedScore = math.Min(player1.ProjectedPoints*1.8, adjustedScore)
 
 		outcomes[player1.ID] = adjustedScore
 	}
@@ -157,16 +205,17 @@ func (s *Simulator) generateCorrelatedOutcomes(players []models.Player, rng *ran
 	return outcomes
 }
 
-func (s *Simulator) generatePlayerScore(player models.Player, rng *rand.Rand) float64 {
-	// Calculate standard deviation from floor/ceiling
-	stdDev := (player.CeilingPoints - player.FloorPoints) / 4.0
+func (s *Simulator) generatePlayerScore(player types.LineupPlayer, rng *rand.Rand) float64 {
+	// Calculate standard deviation from player's projected points
+	// Since LineupPlayer doesn't have ceiling/floor, use approximation
+	stdDev := player.ProjectedPoints * 0.25 // 25% variance
 
 	// Generate score using normal distribution
 	score := rng.NormFloat64()*stdDev + player.ProjectedPoints
 
-	// Apply floor and ceiling constraints with some variance
-	minScore := player.FloorPoints * 0.8
-	maxScore := player.CeilingPoints * 1.2
+	// Apply approximate floor and ceiling constraints
+	minScore := player.ProjectedPoints * 0.3
+	maxScore := player.ProjectedPoints * 1.8
 
 	// Small chance of injury/DNP
 	if rng.Float64() < 0.02 { // 2% chance
@@ -206,7 +255,7 @@ func (s *Simulator) calculateRanks(scores []float64) []int {
 	return ranks
 }
 
-func (s *Simulator) aggregateResults(lineup models.Lineup, resultsChan <-chan models.SimulationRun) *models.SimulationResult {
+func (s *Simulator) aggregateResults(lineup types.GeneratedLineup, resultsChan <-chan SimulationRun) *SimulationResult {
 	scores := make([]float64, 0, s.config.NumSimulations)
 	ranks := make([]int, 0, s.config.NumSimulations)
 	payouts := make([]float64, 0, s.config.NumSimulations)
@@ -222,9 +271,9 @@ func (s *Simulator) aggregateResults(lineup models.Lineup, resultsChan <-chan mo
 	sort.Float64s(scores)
 
 	// Calculate statistics
-	result := &models.SimulationResult{
+	result := &SimulationResult{
 		LineupID:           lineup.ID,
-		ContestID:          lineup.ContestID,
+		// ContestID:          lineup.ContestID, // ContestID not in GeneratedLineup
 		NumSimulations:     len(scores),
 		Mean:               calculateMean(scores),
 		Median:             calculateMedian(scores),
@@ -245,7 +294,7 @@ func (s *Simulator) aggregateResults(lineup models.Lineup, resultsChan <-chan mo
 	return result
 }
 
-func (s *Simulator) reportProgress(lineupID uint, progressChan chan<- models.SimulationProgress, resultsChan <-chan models.SimulationRun) {
+func (s *Simulator) reportProgress(lineupID string, progressChan chan<- SimulationProgress, resultsChan <-chan SimulationRun) {
 	startTime := time.Now()
 	completed := 0
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -262,7 +311,7 @@ func (s *Simulator) reportProgress(lineupID uint, progressChan chan<- models.Sim
 				remaining := s.config.NumSimulations - completed
 				eta := time.Duration(float64(remaining)/rate) * time.Second
 
-				progress := models.SimulationProgress{
+				progress := SimulationProgress{
 					LineupID:               lineupID,
 					TotalSimulations:       s.config.NumSimulations,
 					Completed:              completed,

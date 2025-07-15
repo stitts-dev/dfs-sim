@@ -63,6 +63,7 @@ type Config struct {
 	SupabaseURL        string `mapstructure:"SUPABASE_URL"`
 	SupabaseServiceKey string `mapstructure:"SUPABASE_SERVICE_KEY"`
 	SupabaseAnonKey    string `mapstructure:"SUPABASE_ANON_KEY"`
+	SupabaseJWTSecret  string `mapstructure:"SUPABASE_JWT_SECRET"` // JWT secret for token validation
 	
 	// Twilio Configuration
 	TwilioAccountSID string `mapstructure:"TWILIO_ACCOUNT_SID"`
@@ -86,6 +87,7 @@ type Config struct {
 	// Service Discovery (for microservices)
 	GolfServiceURL         string `mapstructure:"GOLF_SERVICE_URL"`
 	OptimizationServiceURL string `mapstructure:"OPTIMIZATION_SERVICE_URL"`
+	UserServiceURL         string `mapstructure:"USER_SERVICE_URL"`
 	GatewayServiceURL      string `mapstructure:"GATEWAY_SERVICE_URL"`
 }
 
@@ -159,6 +161,7 @@ func setDefaults() {
 	viper.SetDefault("SUPABASE_URL", "")
 	viper.SetDefault("SUPABASE_SERVICE_KEY", "")
 	viper.SetDefault("SUPABASE_ANON_KEY", "")
+	viper.SetDefault("SUPABASE_JWT_SECRET", "") // Usually same as service key
 	viper.SetDefault("TWILIO_ACCOUNT_SID", "")
 	viper.SetDefault("TWILIO_AUTH_TOKEN", "")
 	viper.SetDefault("TWILIO_FROM_NUMBER", "")
@@ -180,6 +183,7 @@ func setDefaults() {
 	// Service discovery defaults
 	viper.SetDefault("GOLF_SERVICE_URL", "http://localhost:8081")
 	viper.SetDefault("OPTIMIZATION_SERVICE_URL", "http://localhost:8082")
+	viper.SetDefault("USER_SERVICE_URL", "http://localhost:8083")
 	viper.SetDefault("GATEWAY_SERVICE_URL", "http://localhost:8080")
 }
 

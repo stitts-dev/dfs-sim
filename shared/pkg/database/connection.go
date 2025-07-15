@@ -114,6 +114,18 @@ func NewGatewayServiceConnection(databaseURL string, isDevelopment bool) (*DB, e
 	return NewConnectionWithConfig(config)
 }
 
+func NewUserServiceConnection(databaseURL string, isDevelopment bool) (*DB, error) {
+	config := ConnectionConfig{
+		DatabaseURL:     databaseURL,
+		IsDevelopment:   isDevelopment,
+		MaxIdleConns:    8,
+		MaxOpenConns:    25,
+		ConnMaxLifetime: time.Hour,
+		ServiceName:     "user-service",
+	}
+	return NewConnectionWithConfig(config)
+}
+
 func (db *DB) Close() error {
 	sqlDB, err := db.DB.DB()
 	if err != nil {

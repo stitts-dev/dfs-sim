@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
+	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 
 	"github.com/stitts-dev/dfs-sim/services/api-gateway/internal/api/handlers"
@@ -86,34 +86,33 @@ func main() {
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(db, cfg, structuredLogger)
 	lineupHandler := handlers.NewLineupHandler(db, structuredLogger)
-	userHandler := handlers.NewUserHandler(db, structuredLogger)
 	healthHandler := handlers.NewHealthHandler(db, redisClient, serviceProxy, structuredLogger)
 
 	// Setup API routes
 	apiV1 := router.Group("/api/v1")
 	{
-		// Authentication endpoints (handled locally)
+		// Authentication endpoints (proxied to user-service for phone auth)
 		auth := apiV1.Group("/auth")
 		{
-			auth.POST("/login", authHandler.Login)
 			auth.POST("/register", authHandler.Register)
+			auth.POST("/login", authHandler.Login)
+			auth.POST("/verify", authHandler.VerifyOTP)
+			auth.POST("/resend", authHandler.ResendOTP)
+			auth.GET("/me", authHandler.GetCurrentUser)
 			auth.POST("/refresh", authHandler.RefreshToken)
 			auth.POST("/logout", authHandler.Logout)
 		}
 
-		// User endpoints (handled locally)
+		// User endpoints (proxied to user service)
 		users := apiV1.Group("/users")
-		users.Use(middleware.AuthRequired(cfg.JWTSecret))
+		users.Use(middleware.AuthRequired(cfg.SupabaseJWTSecret))
 		{
-			users.GET("/profile", userHandler.GetProfile)
-			users.PUT("/profile", userHandler.UpdateProfile)
-			users.GET("/preferences", userHandler.GetPreferences)
-			users.PUT("/preferences", userHandler.UpdatePreferences)
+			users.Any("/*path", serviceProxy.ProxyUserRequest)
 		}
 
 		// Lineup endpoints (handled locally)
 		lineups := apiV1.Group("/lineups")
-		lineups.Use(middleware.AuthRequired(cfg.JWTSecret))
+		lineups.Use(middleware.AuthRequired(cfg.SupabaseJWTSecret))
 		{
 			lineups.GET("", lineupHandler.GetUserLineups)
 			lineups.POST("", lineupHandler.CreateLineup)
@@ -121,6 +120,18 @@ func main() {
 			lineups.PUT("/:id", lineupHandler.UpdateLineup)
 			lineups.DELETE("/:id", lineupHandler.DeleteLineup)
 			lineups.POST("/:id/export", lineupHandler.ExportLineup)
+		}
+
+		// Sports endpoints (proxied to golf service)
+		sports := apiV1.Group("/sports")
+		{
+			sports.Any("/*path", serviceProxy.ProxyGolfRequest)
+		}
+
+		// Contest endpoints (proxied to golf service)
+		contests := apiV1.Group("/contests")
+		{
+			contests.Any("/*path", serviceProxy.ProxyGolfRequest)
 		}
 
 		// Golf endpoints (proxied to golf service)
@@ -131,7 +142,7 @@ func main() {
 
 		// Optimization endpoints (proxied to optimization service)
 		optimization := apiV1.Group("/optimize")
-		optimization.Use(middleware.AuthRequired(cfg.JWTSecret))
+		optimization.Use(middleware.AuthRequired(cfg.SupabaseJWTSecret))
 		{
 			optimization.Any("", serviceProxy.ProxyOptimizationRequest)
 			optimization.Any("/*path", serviceProxy.ProxyOptimizationRequest)
@@ -139,7 +150,7 @@ func main() {
 
 		// Simulation endpoints (proxied to optimization service)
 		simulation := apiV1.Group("/simulate")
-		simulation.Use(middleware.AuthRequired(cfg.JWTSecret))
+		simulation.Use(middleware.AuthRequired(cfg.SupabaseJWTSecret))
 		{
 			simulation.Any("", serviceProxy.ProxyOptimizationRequest)
 			simulation.Any("/*path", serviceProxy.ProxyOptimizationRequest)

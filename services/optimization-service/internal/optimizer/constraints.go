@@ -3,7 +3,7 @@ package optimizer
 import (
 	"fmt"
 
-	"github.com/jstittsworth/dfs-optimizer/internal/models"
+	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
 // PositionConstraint defines constraints for a specific position
@@ -27,7 +27,7 @@ type LineupConstraints struct {
 }
 
 // GetConstraintsForContest returns the constraints for a specific contest
-func GetConstraintsForContest(contest *models.Contest) *LineupConstraints {
+func GetConstraintsForContest(contest *types.Contest) *LineupConstraints {
 	constraints := &LineupConstraints{
 		SalaryCap:           contest.SalaryCap,
 		PositionConstraints: make(map[string]PositionConstraint),
@@ -168,7 +168,7 @@ func (lc *LineupConstraints) setupGolfConstraints(platform string) {
 }
 
 // ValidateLineup performs comprehensive lineup validation
-func (lc *LineupConstraints) ValidateLineup(lineup *models.Lineup) error {
+func (lc *LineupConstraints) ValidateLineup(lineup *types.GeneratedLineup) error {
 	// Salary cap validation
 	if err := lc.validateSalaryCap(lineup); err != nil {
 		return err
@@ -192,7 +192,7 @@ func (lc *LineupConstraints) ValidateLineup(lineup *models.Lineup) error {
 	return nil
 }
 
-func (lc *LineupConstraints) validateSalaryCap(lineup *models.Lineup) error {
+func (lc *LineupConstraints) validateSalaryCap(lineup *types.GeneratedLineup) error {
 	if lineup.TotalSalary > lc.SalaryCap {
 		return fmt.Errorf("lineup exceeds salary cap: %d > %d", lineup.TotalSalary, lc.SalaryCap)
 	}
@@ -204,7 +204,7 @@ func (lc *LineupConstraints) validateSalaryCap(lineup *models.Lineup) error {
 	return nil
 }
 
-func (lc *LineupConstraints) validatePositions(lineup *models.Lineup) error {
+func (lc *LineupConstraints) validatePositions(lineup *types.GeneratedLineup) error {
 	positionCounts := make(map[string]int)
 
 	// Count players by position
@@ -228,8 +228,11 @@ func (lc *LineupConstraints) validatePositions(lineup *models.Lineup) error {
 	return nil
 }
 
-func (lc *LineupConstraints) validateTeamDiversity(lineup *models.Lineup) error {
-	teamCounts := lineup.GetTeamExposure()
+func (lc *LineupConstraints) validateTeamDiversity(lineup *types.GeneratedLineup) error {
+	teamCounts := make(map[string]int)
+	for _, player := range lineup.Players {
+		teamCounts[player.Team]++
+	}
 
 	// Check min/max players per team
 	for team, count := range teamCounts {
@@ -250,8 +253,13 @@ func (lc *LineupConstraints) validateTeamDiversity(lineup *models.Lineup) error 
 	return nil
 }
 
-func (lc *LineupConstraints) validateGameDiversity(lineup *models.Lineup) error {
-	gameCounts := lineup.GetGameExposure()
+func (lc *LineupConstraints) validateGameDiversity(lineup *types.GeneratedLineup) error {
+	gameCounts := make(map[string]int)
+	for _, player := range lineup.Players {
+		// Create game identifier from team and opponent
+		game := fmt.Sprintf("%s@%s", player.Team, "OPP") // TODO: Get actual opponent from player data
+		gameCounts[game]++
+	}
 
 	// Check min/max players per game
 	for game, count := range gameCounts {
