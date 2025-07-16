@@ -50,7 +50,7 @@ func main() {
 	}
 
 	// Connect to database with AI recommendations service connection pool
-	db, err := database.NewConnection(cfg.DatabaseURL, cfg.IsDevelopment())
+	db, err := database.NewAIRecommendationsServiceConnection(cfg.DatabaseURL, cfg.IsDevelopment())
 	if err != nil {
 		logger.WithService("ai-recommendations-service").Fatalf("Failed to connect to database: %v", err)
 	}

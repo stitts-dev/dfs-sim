@@ -51,7 +51,7 @@ func main() {
 	}
 
 	// Connect to database with sports data service connection pool
-	db, err := database.NewGolfServiceConnection(cfg.DatabaseURL, cfg.IsDevelopment())
+	db, err := database.NewSportsDataServiceConnection(cfg.DatabaseURL, cfg.IsDevelopment())
 	if err != nil {
 		logger.WithService("sports-data-service").Fatalf("Failed to connect to database: %v", err)
 	}

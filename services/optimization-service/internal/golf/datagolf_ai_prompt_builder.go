@@ -634,15 +634,15 @@ func (dgpb *DataGolfAIPromptBuilder) analyzeCourseCharacteristics(analytics *Cou
 	}
 }
 
-func (dgpb *DataGolfAIPromptBuilder) processHistoricalData(tournament *models.GolfTournament, insights *DataGolfInsights) *HistoricalTournamentData {
+func (dgpb *DataGolfAIPromptBuilder) processHistoricalData(tournament *GolfTournament, insights *DataGolfInsights) *HistoricalTournamentData {
 	return &HistoricalTournamentData{}
 }
 
-func (dgpb *DataGolfAIPromptBuilder) analyzeFieldStrength(tournament *models.GolfTournament, insights *DataGolfInsights) *FieldStrength {
+func (dgpb *DataGolfAIPromptBuilder) analyzeFieldStrength(tournament *GolfTournament, insights *DataGolfInsights) *FieldStrength {
 	return &FieldStrength{}
 }
 
-func (dgpb *DataGolfAIPromptBuilder) generateKeyNarratives(tournament *models.GolfTournament, insights *DataGolfInsights) []string {
+func (dgpb *DataGolfAIPromptBuilder) generateKeyNarratives(tournament *GolfTournament, insights *DataGolfInsights) []string {
 	return []string{
 		"Course favors long, accurate drivers with strong approach play",
 		"Weather conditions expected to be challenging with variable winds",
@@ -650,7 +650,7 @@ func (dgpb *DataGolfAIPromptBuilder) generateKeyNarratives(tournament *models.Go
 	}
 }
 
-func (dgpb *DataGolfAIPromptBuilder) generatePlayerInsight(player *models.GolfPlayer, insights *DataGolfInsights) *PlayerInsight {
+func (dgpb *DataGolfAIPromptBuilder) generatePlayerInsight(player *GolfPlayer, insights *DataGolfInsights) *PlayerInsight {
 	sgMetrics := insights.StrokesGainedData[player.PlayerID]
 	
 	return &PlayerInsight{
@@ -745,7 +745,7 @@ func (dgpb *DataGolfAIPromptBuilder) analyzeSkillPremiums(analytics *CourseAnaly
 	}
 }
 
-func (dgpb *DataGolfAIPromptBuilder) identifyHistoricalAdvantages(players []*models.GolfPlayer, insights *DataGolfInsights) []*HistoricalAdvantage {
+func (dgpb *DataGolfAIPromptBuilder) identifyHistoricalAdvantages(players []*GolfPlayer, insights *DataGolfInsights) []*HistoricalAdvantage {
 	return make([]*HistoricalAdvantage, 0)
 }
 
@@ -761,7 +761,7 @@ func (dgpb *DataGolfAIPromptBuilder) identifySecondaryMetrics(analytics *CourseA
 	return []string{"sg_around_the_green", "sg_putting", "course_history"}
 }
 
-func (dgpb *DataGolfAIPromptBuilder) calculateContextualImportance(tournament *models.GolfTournament, insights *DataGolfInsights) map[string]float64 {
+func (dgpb *DataGolfAIPromptBuilder) calculateContextualImportance(tournament *GolfTournament, insights *DataGolfInsights) map[string]float64 {
 	return map[string]float64{
 		"sg_off_the_tee":        1.3,
 		"sg_approach":           1.2,
@@ -779,15 +779,15 @@ func (dgpb *DataGolfAIPromptBuilder) identifyCourseSpecificMetrics(analytics *Co
 	return []string{"course_history", "course_fit_rating"}
 }
 
-func (dgpb *DataGolfAIPromptBuilder) buildMarketInefficiencies(players []*models.GolfPlayer, insights *DataGolfInsights) *MarketInefficiencies {
+func (dgpb *DataGolfAIPromptBuilder) buildMarketInefficiencies(players []*GolfPlayer, insights *DataGolfInsights) *MarketInefficiencies {
 	return &MarketInefficiencies{}
 }
 
-func (dgpb *DataGolfAIPromptBuilder) buildRiskAssessment(tournament *models.GolfTournament, players []*models.GolfPlayer, insights *DataGolfInsights) *RiskAssessment {
+func (dgpb *DataGolfAIPromptBuilder) buildRiskAssessment(tournament *GolfTournament, players []*GolfPlayer, insights *DataGolfInsights) *RiskAssessment {
 	return &RiskAssessment{}
 }
 
-func (dgpb *DataGolfAIPromptBuilder) buildOptimizationFocus(constraints *models.OptimizationConstraints, tournament *models.GolfTournament, insights *DataGolfInsights) *OptimizationFocus {
+func (dgpb *DataGolfAIPromptBuilder) buildOptimizationFocus(constraints *OptimizationConstraints, tournament *GolfTournament, insights *DataGolfInsights) *OptimizationFocus {
 	return &OptimizationFocus{}
 }
 
@@ -810,7 +810,7 @@ func (dgpb *DataGolfAIPromptBuilder) writeOptimizationFocusSection(builder *stri
 }
 
 // Method implementations for missing analyzer types
-func (wa *WeatherAnalyzer) AnalyzeWeatherImpact(tournament *models.GolfTournament, insights *DataGolfInsights) *WeatherAnalysis {
+func (wa *WeatherAnalyzer) AnalyzeWeatherImpact(tournament *GolfTournament, insights *DataGolfInsights) *WeatherAnalysis {
 	return &WeatherAnalysis{
 		CurrentConditions: insights.WeatherImpactData.CurrentConditions,
 		ConditionAdvantages: []*WeatherAdvantage{
@@ -819,7 +819,7 @@ func (wa *WeatherAnalyzer) AnalyzeWeatherImpact(tournament *models.GolfTournamen
 	}
 }
 
-func (cla *CutLineAnalyzer) ProjectCutLine(tournament *models.GolfTournament, insights *DataGolfInsights) *CutLineProjection {
+func (cla *CutLineAnalyzer) ProjectCutLine(tournament *GolfTournament, insights *DataGolfInsights) *CutLineProjection {
 	return &CutLineProjection{
 		ProjectedCut: -4.5,
 		LowerBound:   -6.0,
@@ -827,7 +827,7 @@ func (cla *CutLineAnalyzer) ProjectCutLine(tournament *models.GolfTournament, in
 	}
 }
 
-func (cfa *CourseFitAnalyzer) AnalyzeCourseFit(player *models.GolfPlayer, tournament *models.GolfTournament, insights *DataGolfInsights) *CourseFitInsight {
+func (cfa *CourseFitAnalyzer) AnalyzeCourseFit(player *GolfPlayer, tournament *GolfTournament, insights *DataGolfInsights) *CourseFitInsight {
 	return &CourseFitInsight{
 		PlayerName:      player.Name,
 		FitScore:        0.75,
@@ -836,7 +836,7 @@ func (cfa *CourseFitAnalyzer) AnalyzeCourseFit(player *models.GolfPlayer, tourna
 	}
 }
 
-func (cia *CorrelationInsightAnalyzer) AnalyzeCorrelations(players []*models.GolfPlayer, insights *DataGolfInsights) *CorrelationInsights {
+func (cia *CorrelationInsightAnalyzer) AnalyzeCorrelations(players []*GolfPlayer, insights *DataGolfInsights) *CorrelationInsights {
 	return &CorrelationInsights{
 		StackingOpportunities: []*StackingOpportunity{
 			{StackType: "Tee Time", PlayerNames: []string{"Player 1", "Player 2"}, ExpectedCorrelation: 0.35, Rationale: "Same wave advantage"},
@@ -847,7 +847,7 @@ func (cia *CorrelationInsightAnalyzer) AnalyzeCorrelations(players []*models.Gol
 	}
 }
 
-func (sre *StrategyRecommendationEngine) GenerateRecommendations(constraints *models.OptimizationConstraints, insights *DataGolfInsights) *StrategyRecommendations {
+func (sre *StrategyRecommendationEngine) GenerateRecommendations(constraints *OptimizationConstraints, insights *DataGolfInsights) *StrategyRecommendations {
 	return &StrategyRecommendations{
 		TournamentStrategy: &TournamentStrategy{
 			PrimaryApproach:     "Balanced Upside",

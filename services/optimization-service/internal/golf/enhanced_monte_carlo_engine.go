@@ -727,7 +727,7 @@ func (emce *EnhancedMonteCarloEngine) calculateROIProjection(results []Simulatio
 	return &ROIProjection{}
 }
 
-func (emce *EnhancedMonteCarloEngine) calculateVolatilityMetrics(results []SimulationIteration, lineup *models.Lineup) *VolatilityMetrics {
+func (emce *EnhancedMonteCarloEngine) calculateVolatilityMetrics(results []SimulationIteration, lineup *Lineup) *VolatilityMetrics {
 	return &VolatilityMetrics{}
 }
 
@@ -747,7 +747,7 @@ func (emce *EnhancedMonteCarloEngine) calculateCorrelationImpact(results []Simul
 	return &CorrelationImpact{}
 }
 
-func (emce *EnhancedMonteCarloEngine) calculatePlayerContributions(results []SimulationIteration, lineup *models.Lineup) map[string]*PlayerContribution {
+func (emce *EnhancedMonteCarloEngine) calculatePlayerContributions(results []SimulationIteration, lineup *Lineup) map[string]*PlayerContribution {
 	return make(map[string]*PlayerContribution)
 }
 
@@ -784,6 +784,6 @@ func (df *DistributionFitter) SelectBestDistribution(history *PlayerSGHistory) s
 	return "normal"
 }
 
-func (dcm *DynamicCorrelationMatrix) generateCacheKey(players []*models.LineupPlayer, tournament *models.GolfTournament) string {
+func (dcm *DynamicCorrelationMatrix) generateCacheKey(players []*LineupPlayer, tournament *GolfTournament) string {
 	return "cache_key"
 }

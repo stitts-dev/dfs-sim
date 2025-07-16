@@ -126,6 +126,42 @@ func NewUserServiceConnection(databaseURL string, isDevelopment bool) (*DB, erro
 	return NewConnectionWithConfig(config)
 }
 
+func NewAIRecommendationsServiceConnection(databaseURL string, isDevelopment bool) (*DB, error) {
+	config := ConnectionConfig{
+		DatabaseURL:     databaseURL,
+		IsDevelopment:   isDevelopment,
+		MaxIdleConns:    8,
+		MaxOpenConns:    40,
+		ConnMaxLifetime: time.Hour,
+		ServiceName:     "ai-recommendations-service",
+	}
+	return NewConnectionWithConfig(config)
+}
+
+func NewRealtimeServiceConnection(databaseURL string, isDevelopment bool) (*DB, error) {
+	config := ConnectionConfig{
+		DatabaseURL:     databaseURL,
+		IsDevelopment:   isDevelopment,
+		MaxIdleConns:    10,
+		MaxOpenConns:    50,
+		ConnMaxLifetime: time.Hour,
+		ServiceName:     "realtime-service",
+	}
+	return NewConnectionWithConfig(config)
+}
+
+func NewSportsDataServiceConnection(databaseURL string, isDevelopment bool) (*DB, error) {
+	config := ConnectionConfig{
+		DatabaseURL:     databaseURL,
+		IsDevelopment:   isDevelopment,
+		MaxIdleConns:    8,
+		MaxOpenConns:    35,
+		ConnMaxLifetime: time.Hour,
+		ServiceName:     "sports-data-service",
+	}
+	return NewConnectionWithConfig(config)
+}
+
 func (db *DB) Close() error {
 	sqlDB, err := db.DB.DB()
 	if err != nil {

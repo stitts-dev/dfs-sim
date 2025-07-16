@@ -877,7 +877,7 @@ func (rtoe *RealTimeOptimizationEngine) fetchLiveTournamentData(
 func (rtoe *RealTimeOptimizationEngine) applySwap(
 	lineup *types.Lineup,
 	swap *SwapRecommendation,
-) (*models.Lineup, error) {
+) (*Lineup, error) {
 	modifiedLineup := lineup.Copy()
 	return modifiedLineup, nil
 }

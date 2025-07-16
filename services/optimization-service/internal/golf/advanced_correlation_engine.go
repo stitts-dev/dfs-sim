@@ -483,7 +483,7 @@ func (ttcm *TeeTimeCorrelationModel) calculateWeatherExposureDifference(
 	return -0.05
 }
 
-func (wcm *WeatherCorrelationModel) getPlayerWeatherSkill(player *models.GolfPlayer) map[string]float64 {
+func (wcm *WeatherCorrelationModel) getPlayerWeatherSkill(player *GolfPlayer) map[string]float64 {
 	return map[string]float64{
 		"wind_adaptation":    0.5,
 		"rain_performance":   0.6,

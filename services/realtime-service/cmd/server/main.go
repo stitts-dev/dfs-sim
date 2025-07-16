@@ -12,9 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	"github.com/stitts-dev/dfs-sim/services/realtime-service/internal/alerts"
 	"github.com/stitts-dev/dfs-sim/services/realtime-service/internal/api/handlers"
@@ -22,6 +19,7 @@ import (
 	"github.com/stitts-dev/dfs-sim/services/realtime-service/internal/lateswap"
 	"github.com/stitts-dev/dfs-sim/services/realtime-service/internal/ownership"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/config"
+	"github.com/stitts-dev/dfs-sim/shared/pkg/database"
 )
 
 func main() {
@@ -51,10 +49,11 @@ func main() {
 	}).Info("Starting realtime service")
 
 	// Initialize database connection
-	db, err := initDatabase(cfg, logger)
+	db, err := database.NewRealtimeServiceConnection(cfg.DatabaseURL, cfg.IsDevelopment())
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to initialize database")
 	}
+	defer db.Close()
 
 	// Initialize Redis connection
 	redisClient, err := initRedis(cfg, logger)
@@ -64,20 +63,20 @@ func main() {
 	defer redisClient.Close()
 
 	// Initialize event processor
-	eventProcessor := events.NewEventProcessor(redisClient, db, logger)
+	eventProcessor := events.NewEventProcessor(redisClient, db.DB, logger)
 
 	// Initialize ownership tracker
-	ownershipTracker := ownership.NewOwnershipTracker(db, redisClient, logger)
+	ownershipTracker := ownership.NewOwnershipTracker(db.DB, redisClient, logger)
 
 	// Initialize alert engine
-	alertEngine := alerts.NewAlertEngine(db, redisClient, logger)
+	alertEngine := alerts.NewAlertEngine(db.DB, redisClient, logger)
 
 	// Initialize late swap engine
-	lateSwapEngine := lateswap.NewRecommendationEngine(db, redisClient, logger)
+	lateSwapEngine := lateswap.NewRecommendationEngine(db.DB, redisClient, logger)
 
 	// Initialize API handlers
 	apiHandlers := handlers.NewHandlers(
-		db,
+		db.DB,
 		redisClient,
 		eventProcessor,
 		ownershipTracker,
@@ -152,34 +151,6 @@ func main() {
 	logger.Info("Server exited")
 }
 
-func initDatabase(cfg *config.Config, logger *logrus.Logger) (*gorm.DB, error) {
-	logger.Info("Connecting to database...")
-
-	db, err := gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{
-		Logger: NewGormLogger(logger),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
-	}
-
-	// Test connection
-	sqlDB, err := db.DB()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get database instance: %w", err)
-	}
-
-	if err := sqlDB.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	// Configure connection pool
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
-	sqlDB.SetConnMaxLifetime(time.Hour)
-
-	logger.Info("Database connection established")
-	return db, nil
-}
 
 func initRedis(cfg *config.Config, logger *logrus.Logger) (*redis.Client, error) {
 	logger.Info("Connecting to Redis...")
@@ -276,46 +247,3 @@ func loggingMiddleware(logger *logrus.Logger) gin.HandlerFunc {
 	return gin.LoggerWithWriter(logger.Writer())
 }
 
-// NewGormLogger creates a GORM logger that integrates with logrus
-func NewGormLogger(logger *logrus.Logger) *GormLogger {
-	return &GormLogger{logger: logger}
-}
-
-type GormLogger struct {
-	logger *logrus.Logger
-}
-
-func (l *GormLogger) LogMode(level logger.LogLevel) logger.Interface {
-	return l
-}
-
-func (l *GormLogger) Info(ctx context.Context, msg string, data ...interface{}) {
-	l.logger.WithContext(ctx).Infof(msg, data...)
-}
-
-func (l *GormLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
-	l.logger.WithContext(ctx).Warnf(msg, data...)
-}
-
-func (l *GormLogger) Error(ctx context.Context, msg string, data ...interface{}) {
-	l.logger.WithContext(ctx).Errorf(msg, data...)
-}
-
-func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
-	elapsed := time.Since(begin)
-	sql, rows := fc()
-	
-	if err != nil {
-		l.logger.WithContext(ctx).WithFields(logrus.Fields{
-			"elapsed": elapsed,
-			"rows":    rows,
-			"sql":     sql,
-		}).WithError(err).Error("Database query failed")
-	} else {
-		l.logger.WithContext(ctx).WithFields(logrus.Fields{
-			"elapsed": elapsed,
-			"rows":    rows,
-			"sql":     sql,
-		}).Debug("Database query executed")
-	}
-}
