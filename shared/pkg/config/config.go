@@ -45,11 +45,14 @@ type Config struct {
 	SimulationWorkers int `mapstructure:"SIMULATION_WORKERS"`
 
 	// External APIs
-	ESPNRateLimit     int    `mapstructure:"ESPN_RATE_LIMIT"`
 	BallDontLieAPIKey string `mapstructure:"BALLDONTLIE_API_KEY"`
 	TheSportsDBAPIKey string `mapstructure:"THESPORTSDB_API_KEY"`
-	RapidAPIKey       string `mapstructure:"RAPIDAPI_KEY"`
 	DataFetchInterval string `mapstructure:"DATA_FETCH_INTERVAL"`
+	
+	// DataGolf API Configuration
+	DataGolfAPIKey string `mapstructure:"DATAGOLF_API_KEY"`
+	DataGolfBaseURL string `mapstructure:"DATAGOLF_BASE_URL"`
+	DataGolfEnabled bool   `mapstructure:"DATAGOLF_ENABLED"`
 
 	// AI Integration
 	AnthropicAPIKey   string `mapstructure:"ANTHROPIC_API_KEY"`
@@ -157,6 +160,11 @@ func setDefaults() {
 	viper.SetDefault("THESPORTSDB_API_KEY", "4191544") // Free tier
 	viper.SetDefault("RAPIDAPI_KEY", "")
 	viper.SetDefault("DATA_FETCH_INTERVAL", "2h")
+	
+	// DataGolf API defaults
+	viper.SetDefault("DATAGOLF_API_KEY", "")
+	viper.SetDefault("DATAGOLF_BASE_URL", "https://feeds.datagolf.com")
+	viper.SetDefault("DATAGOLF_ENABLED", false)
 	viper.SetDefault("ANTHROPIC_API_KEY", "")
 	viper.SetDefault("AI_RATE_LIMIT", 5)          // requests per minute
 	viper.SetDefault("AI_CACHE_EXPIRATION", 3600) // 1 hour in seconds

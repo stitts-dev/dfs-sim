@@ -8,15 +8,27 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 
+	"github.com/stitts-dev/dfs-sim/services/sports-data-service/pkg/providers"
 	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
+// CutProbabilityWeatherService defines the interface for weather services used in cut probability calculations
+type CutProbabilityWeatherService interface {
+	GetWeatherConditions(ctx context.Context, courseID string) (*types.WeatherConditions, error)
+	CalculateGolfImpact(conditions *types.WeatherConditions) *types.WeatherImpact
+}
+
 // CutProbabilityEngine calculates cut probabilities for golf tournaments
 type CutProbabilityEngine struct {
+	db                *gorm.DB
+	dataGolfClient    *providers.DataGolfClient
+	logger            *logrus.Logger
 	historicalData    *HistoricalCutData
 	courseModels      map[string]*CourseCutModel
-	weatherService    WeatherServiceInterface
+	weatherService    CutProbabilityWeatherService
 	redisClient       *redis.Client
 	cacheTTL          time.Duration
 }
@@ -76,61 +88,105 @@ type CutProbabilityResult struct {
 	CalculatedAt       time.Time
 }
 
-// NewCutProbabilityEngine creates a new cut probability engine
-func NewCutProbabilityEngine(weatherService WeatherServiceInterface, redisClient *redis.Client) *CutProbabilityEngine {
+// NewCutProbabilityEngine creates a new cut probability engine with DataGolf integration
+func NewCutProbabilityEngine(db *gorm.DB, dataGolfClient *providers.DataGolfClient, logger *logrus.Logger) *CutProbabilityEngine {
 	engine := &CutProbabilityEngine{
+		db:             db,
+		dataGolfClient: dataGolfClient,
+		logger:         logger,
 		historicalData: &HistoricalCutData{
 			cutHistory:     make(map[string][]CutEvent),
 			playerCutRates: make(map[string]*PlayerCutStats),
 			lastUpdated:    time.Now(),
 		},
 		courseModels:   make(map[string]*CourseCutModel),
-		weatherService: weatherService,
-		redisClient:    redisClient,
 		cacheTTL:       4 * time.Hour, // Cache for 4 hours
 	}
 
 	// Initialize with some example data - would be loaded from database in production
 	engine.initializeHistoricalData()
 	
+	logger.WithField("datagolf_enabled", dataGolfClient != nil).Info("Cut probability engine initialized")
+	
 	return engine
 }
 
-// CalculateCutProbability calculates the cut probability for a player in a tournament
+// CalculateCutProbability calculates the cut probability for a player in a tournament using DataGolf integration
 func (c *CutProbabilityEngine) CalculateCutProbability(ctx context.Context, playerID, tournamentID, courseID string, fieldStrength float64) (*CutProbabilityResult, error) {
 	// Validate input
 	if err := c.validateInput(playerID, tournamentID, courseID); err != nil {
 		return nil, fmt.Errorf("input validation failed: %w", err)
 	}
 
+	c.logger.WithFields(logrus.Fields{
+		"player_id":     playerID,
+		"tournament_id": tournamentID,
+		"course_id":     courseID,
+	}).Debug("Calculating cut probability")
+
 	// Check cache first
-	cacheKey := fmt.Sprintf("cutprob:%s:%s", playerID, tournamentID)
+	cacheKey := fmt.Sprintf("cutprob_dg:%s:%s", playerID, tournamentID)
 	if cached, err := c.getCachedResult(ctx, cacheKey); err == nil && cached != nil {
 		return cached, nil
 	}
 
-	// Get player historical cut rate
+	// Try to get DataGolf cut probability first
+	var dataGolfCutProb float64
+	var dataGolfConfidence float64 = 0.5 // Default confidence if DataGolf not available
+	
+	if c.dataGolfClient != nil {
+		if predictions, err := c.dataGolfClient.GetPreTournamentPredictions(tournamentID); err == nil {
+			// Find this player's prediction
+			for _, pred := range predictions.Predictions {
+				if fmt.Sprintf("%d", pred.PlayerID) == playerID {
+					dataGolfCutProb = pred.MakeCutProbability
+					dataGolfConfidence = 0.9 // High confidence in DataGolf data
+					c.logger.WithFields(logrus.Fields{
+						"player_id":       playerID,
+						"datagolf_cut_prob": dataGolfCutProb,
+					}).Debug("Using DataGolf cut probability")
+					break
+				}
+			}
+		}
+	}
+
+	// Get baseline probability (fallback if DataGolf not available)
 	baseProb, err := c.calculateHistoricalCutRate(playerID)
 	if err != nil {
-		log.Printf("Warning: Could not calculate historical cut rate for player %s: %v", playerID, err)
+		c.logger.WithError(err).Warnf("Could not calculate historical cut rate for player %s", playerID)
 		baseProb = 0.70 // Default baseline
 	}
 
-	// Course-specific adjustment
-	courseProb := baseProb
-	if courseModel, exists := c.courseModels[courseID]; exists {
-		courseProb = c.adjustForCourse(baseProb, courseModel, fieldStrength)
+	// Use DataGolf probability if available, otherwise use baseline
+	primaryProb := baseProb
+	if dataGolfCutProb > 0 {
+		primaryProb = dataGolfCutProb
 	}
 
-	// Weather impact (check rate limits)
+	// Course-specific adjustment
+	courseProb := primaryProb
+	if courseModel, exists := c.courseModels[courseID]; exists {
+		courseProb = c.adjustForCourse(primaryProb, courseModel, fieldStrength)
+	}
+
+	// Weather impact using DataGolf weather data if available
 	weatherProb := courseProb
 	weatherImpact := 0.0
-	if weather, err := c.weatherService.GetWeatherConditions(ctx, courseID); err == nil {
-		impact := c.weatherService.CalculateGolfImpact(weather)
-		weatherImpact = c.calculateWeatherCutImpact(impact)
-		weatherProb = courseProb * (1.0 + weatherImpact)
-	} else {
-		log.Printf("Warning: Could not get weather data for course %s: %v", courseID, err)
+	
+	if c.dataGolfClient != nil {
+		if weatherData, err := c.dataGolfClient.GetWeatherImpactData(tournamentID); err == nil {
+			weatherImpact = c.calculateDataGolfWeatherImpact(weatherData, playerID)
+			weatherProb = courseProb * (1.0 + weatherImpact)
+			c.logger.WithField("weather_impact", weatherImpact).Debug("Applied DataGolf weather impact")
+		}
+	} else if c.weatherService != nil {
+		// Fallback to traditional weather service
+		if weather, err := c.weatherService.GetWeatherConditions(ctx, courseID); err == nil {
+			impact := c.weatherService.CalculateGolfImpact(weather)
+			weatherImpact = c.calculateWeatherCutImpact(impact)
+			weatherProb = courseProb * (1.0 + weatherImpact)
+		}
 	}
 
 	// Field strength adjustment
@@ -142,8 +198,8 @@ func (c *CutProbabilityEngine) CalculateCutProbability(ctx context.Context, play
 	// Final probability with bounds checking
 	finalProb := math.Max(0.05, math.Min(0.98, formAdjusted))
 
-	// Confidence based on data quality
-	confidence := c.calculateConfidence(playerID, courseID)
+	// Enhanced confidence calculation considering DataGolf data
+	confidence := c.calculateEnhancedConfidence(playerID, courseID, dataGolfConfidence)
 
 	result := &CutProbabilityResult{
 		PlayerID:         playerID,
@@ -360,4 +416,73 @@ func (c *CutProbabilityEngine) initializeHistoricalData() {
 		FieldStrengthFactor: 0.15,
 		LastUpdated:         time.Now(),
 	}
+}
+
+// calculateDataGolfWeatherImpact calculates weather impact using DataGolf weather analysis
+func (c *CutProbabilityEngine) calculateDataGolfWeatherImpact(weatherData *providers.WeatherImpactAnalysis, playerID string) float64 {
+	if weatherData == nil {
+		return 0.0
+	}
+
+	// Base weather impact from DataGolf analysis
+	baseImpact := weatherData.OverallImpact * 0.1 // Scale the overall impact
+	
+	// Find player-specific impact if available
+	for _, playerImpact := range weatherData.PlayerImpacts {
+		if fmt.Sprintf("%d", playerImpact.PlayerID) == playerID {
+			baseImpact = playerImpact.WeatherAdvantage * 0.1
+			break
+		}
+	}
+	
+	// Course adjustments impact
+	courseAdj := weatherData.CourseAdjustments
+	if courseAdj.SoftConditions {
+		baseImpact += 0.02 // Soft conditions generally help with cut probability
+	}
+	
+	// Variance multiplier affects cut uncertainty
+	if courseAdj.VarianceMultiplier > 1.2 {
+		baseImpact -= 0.03 // High variance makes cuts harder to predict/achieve
+	}
+	
+	// Player-specific weather resistance (if available in DataGolf data)
+	// This would be enhanced with actual player weather performance data
+	playerWeatherFactor := 1.0 // Default neutral
+	
+	// Apply player-specific adjustments if DataGolf provides weather resistance data
+	finalImpact := baseImpact * playerWeatherFactor
+	
+	// Bound the impact to reasonable limits
+	return math.Max(-0.15, math.Min(0.10, finalImpact))
+}
+
+// calculateEnhancedConfidence calculates confidence score considering DataGolf data availability
+func (c *CutProbabilityEngine) calculateEnhancedConfidence(playerID, courseID string, dataGolfConfidence float64) float64 {
+	baseConfidence := 0.5 // Starting confidence
+	
+	// Boost confidence if we have DataGolf data
+	if dataGolfConfidence > 0.8 {
+		baseConfidence = 0.9 // High confidence with DataGolf
+	} else if dataGolfConfidence > 0.5 {
+		baseConfidence = 0.75 // Medium confidence
+	}
+	
+	// Adjust based on historical data availability
+	if playerStats, exists := c.historicalData.playerCutRates[playerID]; exists {
+		if playerStats.TournamentsPlayed > 20 {
+			baseConfidence += 0.05 // More historical data = higher confidence
+		}
+		if time.Since(playerStats.LastUpdated) < 30*24*time.Hour { // Within 30 days
+			baseConfidence += 0.03 // Recent data = higher confidence
+		}
+	}
+	
+	// Adjust based on course model availability
+	if _, exists := c.courseModels[courseID]; exists {
+		baseConfidence += 0.02 // Course-specific model available
+	}
+	
+	// Ensure confidence stays within bounds
+	return math.Max(0.1, math.Min(0.98, baseConfidence))
 }

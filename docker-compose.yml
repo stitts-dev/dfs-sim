@@ -32,6 +32,9 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379/${REDIS_GOLF_DB:-0}
       - RAPIDAPI_KEY=${RAPIDAPI_KEY}
+      - DATAGOLF_API_KEY=${DATAGOLF_API_KEY:-your-datagolf-api-key-here}
+      - DATAGOLF_BASE_URL=${DATAGOLF_BASE_URL:-https://feeds.datagolf.com}
+      - DATAGOLF_ENABLED=${DATAGOLF_ENABLED:-false}
       - ESPN_RATE_LIMIT=10
       - CIRCUIT_BREAKER_THRESHOLD=5
       - LOG_LEVEL=info
@@ -74,8 +77,12 @@ services:
       - OPTIMIZATION_TIMEOUT=30
       - MAX_SIMULATIONS=100000
       - SIMULATION_WORKERS=4
+      - DATAGOLF_API_KEY=${DATAGOLF_API_KEY:-your-datagolf-api-key-here}
+      - DATAGOLF_BASE_URL=${DATAGOLF_BASE_URL:-https://feeds.datagolf.com}
+      - DATAGOLF_ENABLED=${DATAGOLF_ENABLED:-false}
       - LOG_LEVEL=info
       - ENV=production
+      - ASSUME_NO_MOVING_GC_UNSAFE_RISK_IT_WITH=go1.21
     ports:
       - "8082:8082"
     depends_on:
@@ -106,7 +113,7 @@ services:
       - SERVICE_NAME=user
       - PORT=8083
       - SMS_PROVIDER=${SMS_PROVIDER:-supabase}
-      - DATABASE_URL=${USER_DATABASE_URL}
+      - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=redis://redis:6379/${REDIS_USER_DB:-3}
       - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
       - SUPABASE_URL=${SUPABASE_URL}
@@ -256,18 +263,11 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      sports-data-service:
-        condition: service_healthy
-      optimization-service:
-        condition: service_healthy
-      user-service:
-        condition: service_healthy
-      ai-recommendations-service:
-        condition: service_healthy
-      realtime-service:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - sports-data-service
+      - optimization-service
+      - user-service
+      - ai-recommendations-service
+      - redis
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "-O", "/dev/null", "http://localhost:8080/health"]
       interval: 30s
@@ -283,7 +283,7 @@ services:
     image: nginx:alpine
     container_name: dfs-nginx
     ports:
-      - "80:80"
+      - "8090:80"
       - "443:443"
     volumes:
       - ./services/api-gateway/config/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -307,8 +307,8 @@ services:
       dockerfile: Dockerfile
     container_name: dfs-frontend
     environment:
-      - VITE_API_URL=http://localhost/api/v1
-      - VITE_WS_URL=ws://localhost/ws
+      - VITE_API_URL=http://localhost:8090/api/v1
+      - VITE_WS_URL=ws://localhost:8090/ws
     ports:
       - "5173:5173"
     depends_on:

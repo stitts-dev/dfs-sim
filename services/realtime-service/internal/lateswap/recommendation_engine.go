@@ -2,7 +2,6 @@ package lateswap
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"sort"

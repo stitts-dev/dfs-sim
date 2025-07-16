@@ -5,7 +5,7 @@ import { formatCurrency, formatNumber, formatDate, cn } from '@/lib/utils'
 import { getContests, getSupportedSports, type SportInfo, type SportsConfiguration } from '@/services/api'
 import { Contest } from '@/types/contest'
 import { usePreferencesStore } from '@/store/preferences'
-import { useAuthStore } from '@/store/auth'
+import { useUnifiedAuthStore } from '@/store/unifiedAuth'
 import { env, getFallbackSports, debugLog } from '@/lib/env'
 import UsageTracker from '@/components/UsageTracker'
 import OnboardingWizard from '@/components/OnboardingWizard'
@@ -13,7 +13,7 @@ import { RealtimeDashboard } from '@/components/realtime'
 
 export default function Dashboard() {
   const { beginnerMode, loadUserPreferences, preferredSports, tutorialProgress } = usePreferencesStore()
-  const { isAuthenticated, user } = useAuthStore()
+  const { isAuthenticated, user } = useUnifiedAuthStore()
   const [selectedSport, setSelectedSport] = useState<string>('all')
   const [selectedPlatform, setSelectedPlatform] = useState<string>('all')
   const [showOnboarding, setShowOnboarding] = useState(false)

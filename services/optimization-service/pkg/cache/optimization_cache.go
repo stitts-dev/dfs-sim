@@ -218,3 +218,36 @@ func (c *OptimizationCacheService) SetWithRetry(ctx context.Context, key string,
 
 	return fmt.Errorf("failed to set cache after %d retries: %w", maxRetries, lastErr)
 }
+
+// Implement CacheProvider interface
+func (c *OptimizationCacheService) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error {
+    data, err := json.Marshal(value)
+    if err != nil {
+        return err
+    }
+    return c.client.Set(ctx, key, data, expiration).Err()
+}
+
+func (c *OptimizationCacheService) Get(ctx context.Context, key string, dest interface{}) error {
+    data, err := c.client.Get(ctx, key).Bytes()
+    if err != nil {
+        return err
+    }
+    return json.Unmarshal(data, dest)
+}
+
+func (c *OptimizationCacheService) Delete(ctx context.Context, key string) error {
+    return c.client.Del(ctx, key).Err()
+}
+
+func (c *OptimizationCacheService) Exists(ctx context.Context, key string) bool {
+    return c.client.Exists(ctx, key).Val() == 1
+}
+
+func (c *OptimizationCacheService) SetSimple(key string, value interface{}, expiration time.Duration) error {
+    return c.Set(context.Background(), key, value, expiration)
+}
+
+func (c *OptimizationCacheService) GetSimple(key string, dest interface{}) error {
+    return c.Get(context.Background(), key, dest)
+}

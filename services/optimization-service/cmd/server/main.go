@@ -14,8 +14,11 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/api/handlers"
+	internalcache "github.com/stitts-dev/dfs-sim/services/optimization-service/internal/cache"
+	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/optimizer"
 	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/websocket"
-	"github.com/stitts-dev/dfs-sim/services/optimization-service/pkg/cache"
+	pkgcache "github.com/stitts-dev/dfs-sim/services/optimization-service/pkg/cache"
+	"github.com/stitts-dev/dfs-sim/services/sports-data-service/pkg/providers"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/config"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/database"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/logger"
@@ -70,7 +73,37 @@ func main() {
 	defer redisClient.Close()
 
 	// Initialize cache service for optimization results
-	cacheService := cache.NewOptimizationCacheService(redisClient, structuredLogger)
+	cacheService := pkgcache.NewOptimizationCacheService(redisClient, structuredLogger)
+
+	// Initialize analytics cache
+	analyticsConfig := internalcache.CacheConfig{
+		RedisURL: cfg.RedisURL,
+		Database: 1,
+		DefaultTTL: time.Hour * 24,
+		KeyPrefix: "analytics:",
+		MaxRetries: 3,
+		PoolSize: 10,
+		ReadTimeout: 3 * time.Second,
+		WriteTimeout: 3 * time.Second,
+	}
+	analyticsCache, err := internalcache.NewAnalyticsCache(analyticsConfig)
+	if err != nil {
+		logger.WithService("optimization-service").Fatalf("Failed to initialize analytics cache: %v", err)
+	}
+
+	// Initialize DataGolf client if enabled
+	var dataGolfClient *providers.DataGolfClient
+	if cfg.DataGolfEnabled && cfg.DataGolfAPIKey != "" {
+		dataGolfClient = providers.NewDataGolfClient(
+			cfg.DataGolfAPIKey,
+			db.DB,  // Change to db.DB
+			cacheService,
+			structuredLogger,
+		)
+		logger.WithService("optimization-service").WithField("datagolf_enabled", true).Info("DataGolf client initialized")
+	} else {
+		logger.WithService("optimization-service").WithField("datagolf_enabled", false).Info("DataGolf client disabled")
+	}
 
 	// Initialize WebSocket hub for progress updates
 	wsHub := websocket.NewHub(structuredLogger)
@@ -80,10 +113,27 @@ func main() {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 
+	// Initialize base optimizer for golf position strategies
+	baseOptimizer := optimizer.NewDPOptimizer()  // Change to NewDPOptimizer and remove arguments
+
+	// Initialize cut probability engine with DataGolf integration
+	cutProbabilityEngine := optimizer.NewCutProbabilityEngine(
+		db.DB,  // Change to db.DB
+		dataGolfClient,
+		structuredLogger,
+	)
+
+	// Initialize position optimizer for golf strategies
+	positionOptimizer := optimizer.NewPositionOptimizer(
+		baseOptimizer,
+		cutProbabilityEngine,
+		dataGolfClient,
+	)
+
 	// Initialize handlers
 	optimizationHandler := handlers.NewOptimizationHandler(
 		db,
-		cacheService,
+		analyticsCache,  // Change to analyticsCache
 		wsHub,
 		cfg,
 		structuredLogger,
@@ -95,20 +145,55 @@ func main() {
 		cfg,
 		structuredLogger,
 	)
+
+	// Initialize golf optimization handler if DataGolf is enabled
+	var golfOptimizationHandler *handlers.GolfOptimizationHandler
+	if dataGolfClient != nil {
+		golfOptimizationHandler = handlers.NewGolfOptimizationHandler(
+			positionOptimizer,
+			cutProbabilityEngine,
+			dataGolfClient,
+			structuredLogger,
+		)
+		logger.WithService("optimization-service").Info("Golf optimization handler initialized with DataGolf integration")
+	}
+
 	healthHandler := handlers.NewHealthHandler(db, redisClient, structuredLogger)
+	lineupHandler := handlers.NewLineupHandler(db, structuredLogger)
 
 	// Setup API routes for optimization service
 	apiV1 := router.Group("/api/v1")
 	{
+		// Lineup endpoints
+		apiV1.GET("/lineups", lineupHandler.GetUserLineups)
+		apiV1.POST("/lineups", lineupHandler.CreateLineup)
+		apiV1.GET("/lineups/:id", lineupHandler.GetLineup)
+		apiV1.PUT("/lineups/:id", lineupHandler.UpdateLineup)
+		apiV1.DELETE("/lineups/:id", lineupHandler.DeleteLineup)
+		apiV1.POST("/lineups/:id/export", lineupHandler.ExportLineup)
+
 		// Optimization endpoints
 		apiV1.POST("/optimize", optimizationHandler.OptimizeLineups)
 		apiV1.POST("/optimize/validate", optimizationHandler.ValidateOptimizationRequest)
 		apiV1.GET("/optimize/cache-status", optimizationHandler.GetCacheStatus)
-		
+
 		// Simulation endpoints
 		apiV1.POST("/simulate", simulationHandler.RunSimulation)
 		apiV1.GET("/simulate/:id/status", simulationHandler.GetSimulationStatus)
 		apiV1.GET("/simulate/:id/results", simulationHandler.GetSimulationResults)
+
+		// Golf optimization endpoints (DataGolf-powered)
+		if golfOptimizationHandler != nil {
+			golf := apiV1.Group("/golf")
+			{
+				golf.POST("/optimize", golfOptimizationHandler.OptimizeGolf)
+				golf.GET("/strategies", golfOptimizationHandler.GetGolfStrategies)
+				golf.GET("/cut-analysis/:tournament_id", golfOptimizationHandler.GetCutAnalysis)
+				golf.GET("/player-projections/:tournament_id", golfOptimizationHandler.GetPlayerProjections)
+				golf.GET("/weather-impact/:tournament_id", golfOptimizationHandler.GetWeatherImpact)
+				golf.GET("/live-updates/:tournament_id", golfOptimizationHandler.GetLiveOptimizationUpdates)
+			}
+		}
 	}
 
 	// WebSocket endpoint for progress updates

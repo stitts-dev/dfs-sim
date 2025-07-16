@@ -1,0 +1,840 @@
+openapi: 3.0.0
+info:
+  description: >
+    Sign up for the Slash Golf API on
+
+    [**RapidAPI**](https://rapidapi.com/slashgolf/api/live-golf-data)
+  version: 1.0.0
+  title: Slash Golf
+  # termsOfService: https://slashgolf.dev/TODO
+  contact:
+    email: slashgolfapi@gmail.com
+    # license:
+    # name: Apache 2.0
+    # url: http://www.apache.org/licenses/LICENSE-2.0.html
+paths:
+  /organizations:
+    get:
+      tags:
+        - Tour Information
+      description: Fetch organizations that are available in this API
+      summary: Get Organizations
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Organization'
+        '429':
+          description: Too many requests
+      security:
+        - rapidapi-key: []
+  /schedule:
+    get:
+      tags:
+        - Tour Information
+      description: Fetch the PGA Tour schedule for a given season year
+      summary: Get Schedule
+      parameters:
+        - name: year
+          in: query
+          required: true
+          description: Tour schedule based on calendar year. Note in earlier years the PGA Tour season started in the fall of the previous year.
+          schema:
+            type: string
+          example: "2025"
+        - name: orgId
+          in: query
+          required: false
+          description: Select tour to receive schedule for. Defaults to "1" (PGA Tour) if not provided
+          schema:
+            type: string
+            enum: ["1", "2"]
+          example: "1"
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '400':
+          description: Invalid input or missing parameters
+        '429':
+          description: Too many requests
+      security:
+        - rapidapi-key: []
+  /players:
+    get:
+      tags:
+        - Tour Information
+      summary: Get Player
+      description: >-
+        Fetch a PGA Tour player by his last name, first name, playerId, or a
+        combination of these parameters. You must provide at least one search
+        parameter to the API.
+      parameters:
+        - name: lastName
+          in: query
+          description: The player's last name
+          required: false
+          schema:
+            type: string
+            example: Morikawa
+        - name: firstName
+          in: query
+          description: The player's first name
+          required: false
+          schema:
+            type: string
+            example: Collin
+        - name: playerId
+          in: query
+          description: The player's playerId
+          required: false
+          schema:
+            type: string
+            example: '50525'
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Player'
+        '400':
+          description: Invalid input or missing parameters
+        '429':
+          description: Too many requests
+      security:
+        - rapidapi-key: []
+  /tournament:
+    get:
+      tags:
+        - Tournament Data
+      summary: Get Tournament Information
+      description: >-
+        Fetch tournament information, such as metadata, players, and earnings.
+        See the schedule endpoint to retrieve the necessary tournId for a given
+        year.
+      parameters:
+        - name: orgId
+          in: query
+          required: false
+          description: Select tour to receive schedule for. Defaults to "1" (PGA Tour) if not provided
+          schema:
+            type: string
+            enum: ["1", "2"]
+          example: "1"
+        - name: tournId
+          in: query
+          description: >-
+            The tournament ID for the desired tournament, which can be found on
+            a given year's schedule
+          required: true
+          schema:
+            type: string
+            example: "006"
+        - name: year
+          in: query
+          description: The season year for the desired tournament
+          required: true
+          schema:
+            type: string
+            example: 2025
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tournament'
+        '400':
+          description: Invalid input or missing parameters
+        '429':
+          description: Too many requests
+      security:
+        - rapidapi-key: []
+  /leaderboard:
+    get:
+      tags:
+        - Tournament Data
+      summary: Get Leaderboard
+      description: >-
+        Fetch the live or most recent leaderboard for a given tournId, year, and
+        roundId. The tournId for a given season year can be found on the
+        schedule endpoint.
+      parameters:
+        - name: orgId
+          in: query
+          required: false
+          description: Select tour to receive schedule for. Defaults to "1" (PGA Tour) if not provided
+          schema:
+            type: string
+            enum: ["1", "2"]
+          example: "1"
+        - name: tournId
+          in: query
+          description: >-
+            The tournament ID for the desired tournament, which can be found on
+            a given year's schedule
+          required: true
+          schema:
+            type: string
+            example: "006"
+        - name: year
+          in: query
+          description: The season year for the desired tournament
+          required: true
+          schema:
+            type: string
+            example: 2025
+        - name: roundId
+          in: query
+          description: The roundId of the tournament (e.g. 1, 2, 3, 4)
+          required: false
+          schema:
+            type: string
+            example: 4
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Leaderboard'
+        '400':
+          description: Invalid input or missing parameters
+        '429':
+          description: Too many requests
+      security:
+        - rapidapi-key: []
+  /scorecard:
+    get:
+      tags:
+        - Tournament Data
+      summary: Get Scorecard
+      description: >-
+        Fetch the live or most recent scorecard for a given tournId, year,
+        playerId, and roundId. If a roundId is not provided, the returned array will include each of the
+        player's scorecards from the rounds played
+      parameters:
+        - name: orgId
+          in: query
+          required: false
+          description: Select tour to receive schedule for. Defaults to "1" (PGA Tour) if not provided
+          schema:
+            type: string
+            enum: ["1", "2"]
+          example: "1"
+        - name: tournId
+          in: query
+          description: >-
+            The tournament ID for the desired tournament, which can be found on
+            a given year's schedule
+          required: true
+          schema:
+            type: string
+            example: "005"
+        - name: year
+          in: query
+          description: The season year for the desired tournament
+          required: true
+          schema:
+            type: string
+            example: 2025
+        - name: playerId
+          in: query
+          description: >-
+            The player ID of the desired scorecard. Player ID values can be
+            found from the players endpoint or for this tournament specifically
+            in the tournament endpoint
+          required: true
+          schema:
+            type: string
+            example: '50525'
+        - name: roundId
+          in: query
+          description: The roundId of the tournament (e.g. 1, 2, 3, 4)
+          required: false
+          schema:
+            type: string
+            example: 4
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Scorecard'
+        '400':
+          description: Invalid input or missing parameters
+        '429':
+          description: Too many requests
+      security:
+        - rapidapi-key: []
+  /points:
+    get:
+      tags:
+        - Tournament Data
+      summary: Get Event FedExCup Points
+      description: >-
+        Fetch official FedExCup points earned per player for a given tournId
+        and year. Note that PGA Tour non-members will not be officially ranked
+      parameters:
+        - name: tournId
+          in: query
+          description: >-
+            The tournament ID for the desired tournament, which can be found on
+            a given year's schedule
+          required: true
+          schema:
+            type: string
+            example: "006"
+        - name: year
+          in: query
+          description: The season year for the desired tournament
+          required: true
+          schema:
+            type: string
+            example: 2025
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Points'
+        '400':
+          description: Invalid input or missing parameters
+        '429':
+          description: Too many requests
+      security:
+        - rapidapi-key: []
+  /earnings:
+    get:
+      tags:
+        - Tournament Data
+      summary: Get Event Money
+      description: >-
+        Fetch player earnings for a given tournId and year. PGA Tour non-members
+        will also be included
+      parameters:
+        - name: tournId
+          in: query
+          description: >-
+            The tournament ID for the desired tournament, which can be found on
+            a given year's schedule
+          required: true
+          schema:
+            type: string
+            example: "006"
+        - name: year
+          in: query
+          description: The season year for the desired tournament
+          required: true
+          schema:
+            type: string
+            example: 2025
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Earnings'
+        '400':
+          description: Invalid input or missing parameters
+        '429':
+          description: Too many requests
+      security:
+        - rapidapi-key: []
+  /stats:
+    get:
+      tags:
+        - Rankings
+      summary: Get FedExCup or OWGR Ranking
+      description: >-
+        Fetch the FedExCup or Official World Golf Ranking (OWGR) leaderboard
+        for a given year
+      parameters:
+        - name: year
+          in: query
+          description: The year for desired ranking
+          required: true
+          schema:
+            type: string
+            example: 2025
+        - name: statId
+          in: query
+          description: The statId for the desired ranking
+          required: true
+          schema:
+            type: string
+            enum: ["02671", "186"]
+          example: "186"
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/FedExCup'
+                  - $ref: '#/components/schemas/World'
+        '400':
+          description: Invalid input or missing parameters
+        '429':
+          description: Too many requests
+      security:
+        - rapidapi-key: []
+externalDocs:
+  description: Learn more about Slash golf
+  url: https://slashgolf.dev/quickstart
+servers:
+  - url: https://live-golf-data.p.rapidapi.com
+components:
+  securitySchemes:
+    rapidapi-key:
+      type: apiKey
+      name: x-rapidapi-key
+      in: header
+  schemas:
+    Organization:
+      type: object
+      properties:
+        orgId:
+          type: string
+        orgName:
+          type: string
+    Date:
+      type: object
+      properties:
+        weekNumber:
+          type: string
+        start:
+          type: string
+          description: UTC Datetime
+        end:
+          type: string
+          description: UTC Datetime
+    Location:
+      type: object
+      properties:
+        state:
+          type: string
+        city:
+          type: string
+        country:
+          type: string
+    Player:
+      type: object
+      properties:
+        playerId:
+          type: string
+        lastName:
+          type: string
+        firstName:
+          type: string
+    Schedule:
+      type: object
+      properties:
+        year:
+          type: string
+        schedule:
+          type: array
+          items:
+            type: object
+            properties:
+              tournId:
+                type: string
+              name:
+                type: string
+              date:
+                $ref: '#/components/schemas/Date'
+              format:
+                type: string
+              purse:
+                type: integer
+                format: int64
+              fedexCupPoints:
+                type: integer
+                format: int32
+    Tournament:
+      type: object
+      properties:
+        tournId:
+          type: string
+        name:
+          type: string
+        date:
+          $ref: '#/components/schemas/Date'
+        format:
+          type: string
+        courses:
+          type: array
+          items:
+            type: object
+            properties:
+              host:
+                type: string
+              location:
+                $ref: '#/components/schemas/Location'
+              courseName:
+                type: string
+              courseId:
+                type: string
+              parFrontNine:
+                type: string
+              parBackNine:
+                type: string
+              parTotal:
+                type: string
+              holes:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    holeId:
+                      type: integer
+                      format: int32
+                    rounds:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          roundId:
+                            type: integer
+                            format: int32
+                          par:
+                            type: integer
+                            format: int32
+        purse:
+          type: integer
+          format: int64
+        fedexCupPoints:
+          type: integer
+          format: int32
+        players:
+          type: array
+          items:
+            type: object
+            properties:
+              player:
+                type: object
+                properties:
+                  playerId:
+                    type: string
+                  lastName:
+                    type: string
+                  firstName:
+                    type: string
+                  courseId:
+                    type: string
+                  status:
+                    type: string
+        currentRound:
+          type: integer
+          format: int32
+        status:
+          type: string
+          description: Status for the entire duration of the tournament
+          enum:
+            - "Not Started"
+            - "In Progress"
+            - "Complete"
+            - "Official"
+    Leaderboard:
+      type: object
+      properties:
+        tournId:
+          type: string
+        roundId:
+          type: integer
+          format: int32
+        roundStatus:
+          type: string
+          description: >-
+            status for this round only. For tournament-wide status see 'status'
+            field
+          enum:
+            - "Not Started"
+            - "Groupings Official"
+            - "In Progress"
+            - "Suspended"
+            - "Complete"
+            - "Official"
+        year:
+          type: string
+        cutLines:
+          type: array
+          items:
+            type: object
+            properties:
+              cutCount:
+                type: integer
+                format: int32
+              countScore:
+                type: string
+        playoff:
+          type: object
+          properties:
+            players:
+              type: array
+              items:
+                type: object
+                properties:
+                  lastName:
+                    type: string
+                  firstName:
+                    type: string
+                  playerId:
+                    type: string
+                  position:
+                    type: string
+                  holes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        holeId:
+                          type: integer
+                          format: int32
+                        par:
+                          type: integer
+                          format: int32
+                        holeScore:
+                          type: integer
+                          format: int32
+        leaderboardRows:
+          type: array
+          items:
+            type: object
+            properties:
+              lastName:
+                type: string
+              firstName:
+                type: string
+              playerId:
+                type: string
+              courseId:
+                type: string
+              status:
+                type: string
+                enum:
+                  - "active"
+                  - "complete"
+                  - "cut"
+                  - "wd"
+                  - "dq"
+              total:
+                type: string
+              currentRoundScore:
+                type: string
+              position:
+                type: string
+              totalStrokesFromCompletedRounds:
+                type: string
+              roundComplete:
+                type: boolean
+              teeTime:
+                type: string
+                example: "7:30am"
+              rounds:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    scoreToPar:
+                      type: string
+                    roundId:
+                      type: integer
+                      format: int32
+                    strokes:
+                      type: integer
+                      format: int32
+                    courseId:
+                      type: string
+                    courseName:
+                      type: string
+              currentHole:
+                type: integer
+                format: int32
+              startingHole:
+                type: integer
+                format: int32
+        lastUpdated:
+          type: string
+        status:
+          type: string
+          description: status for entire tournament
+    Scorecard:
+      type: object
+      properties:
+        tournId:
+          type: string
+        year:
+          type: string
+        playerId:
+          type: string
+        lastName:
+          type: string
+        firstName:
+          type: string
+        roundId:
+          type: integer
+          format: int32
+        lastHole:
+          type: integer
+          format: int32
+        startingHole:
+          type: integer
+          format: int32
+        roundComplete:
+          type: boolean
+        currentRoundScore:
+          type: string
+        currentHole:
+          type: integer
+          format: int32
+        holes:
+          type: object
+          properties:
+            holeId:
+              type: integer
+              format: int32
+            holeScore:
+              type: integer
+              format: int32
+            par:
+              type: integer
+              format: int32
+        totalShots:
+          type: integer
+          format: int32
+    Earnings:
+      type: object
+      properties:
+        year:
+          type: string
+        tournId:
+          type: string
+        leaderboard:
+          type: array
+          items:
+            type: object
+            properties:
+              playerId:
+                type: string
+              firstName:
+                type: string
+              lastName:
+                type: string
+    Points:
+      type: object
+      properties:
+        year:
+          type: string
+        tournId:
+          type: string
+        leaderboard:
+          type: array
+          items:
+            type: object
+            properties:
+              playerId:
+                type: string
+              firstName:
+                type: string
+              lastName:
+                type: string
+    FedExCup:
+      type: object
+      properties:
+        year:
+          type: string
+        name:
+          type: string
+        statId:
+          type: string
+        tourAvg:
+          type: string
+        previousTourn:
+          type: object
+          properties:
+            name:
+              type: string
+            tournId:
+              type: string
+            endDate:
+              type: string
+        rankings:
+          type: array
+          items:
+            type: object
+            properties:
+              playerId:
+                type: string
+              firstName:
+                type: string
+              lastName:
+                type: string
+              rank:
+                type: string
+              previousRank:
+                type: string
+              totalPoints:
+                type: string
+              events:
+                type: string
+              numWins:
+                type: string
+              numTop10s:
+                type: string
+              pointsBehind:
+                type: string
+    World:
+      type: object
+      properties:
+        year:
+          type: string
+        statId:
+          type: string
+        name:
+          type: string
+        weekNum:
+          type: integer
+          format: int32
+        rankings:
+          type: array
+          items:
+            type: object
+            properties:
+              firstName:
+                type: string
+              lastName:
+                type: string
+              rank:
+                type: integer
+                format: int32
+              previousRank:
+                type: integer
+                format: int32
+              events:
+                type: integer
+                format: int32
+              totalPoints:
+                type: number
+              avgPoints:
+                type: number
+              pointsLost:
+                type: number
+              pointsGained:
+                type: number

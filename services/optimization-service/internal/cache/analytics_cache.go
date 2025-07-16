@@ -456,6 +456,28 @@ func (ac *AnalyticsCache) ClearExpiredKeys(ctx context.Context) error {
 	return nil
 }
 
+// GetStatus returns cache status information
+func (ac *AnalyticsCache) GetStatus(ctx context.Context) map[string]interface{} {
+	stats, err := ac.GetCacheStats(ctx)
+	if err != nil {
+		ac.logger.WithError(err).Error("Failed to get cache stats")
+		return map[string]interface{}{
+			"status": "error",
+			"error":  err.Error(),
+		}
+	}
+	
+	return map[string]interface{}{
+		"status":             "healthy",
+		"total_size":         stats.TotalSize,
+		"active_connections": stats.ActiveConnections,
+		"hit_rate":          stats.HitRate,
+		"hits":              stats.Hits,
+		"misses":            stats.Misses,
+		"total_operations":  stats.Sets + stats.Deletes,
+	}
+}
+
 // Close closes the Redis connection
 func (ac *AnalyticsCache) Close() error {
 	return ac.client.Close()

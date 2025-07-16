@@ -165,10 +165,7 @@ func (lc *LeverageCalculator) calculateAdvancedLeverage(
 	basicLeverage := lc.calculateBasicLeverage(ownershipPct, totalEntries)
 	
 	// Calculate value-based adjustment
-	valuePerDollar := 0.0
-	if projection.Salary > 0 {
-		valuePerDollar = projection.ProjectedPoints / float64(projection.Salary) * 1000
-	}
+	// TODO: Implement value-based adjustment for leverage calculation
 	
 	// Projection vs ownership gap
 	// This would typically use actual projections vs implied projections from ownership

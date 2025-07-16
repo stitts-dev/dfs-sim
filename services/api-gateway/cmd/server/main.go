@@ -85,7 +85,6 @@ func main() {
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(db, cfg, structuredLogger)
-	lineupHandler := handlers.NewLineupHandler(db, structuredLogger)
 	healthHandler := handlers.NewHealthHandler(db, redisClient, serviceProxy, structuredLogger)
 
 	// Setup API routes
@@ -110,16 +109,11 @@ func main() {
 			users.Any("/*path", serviceProxy.ProxyUserRequest)
 		}
 
-		// Lineup endpoints (handled locally)
+		// Lineup endpoints (proxied to optimization service)
 		lineups := apiV1.Group("/lineups")
 		lineups.Use(middleware.AuthRequired(cfg.SupabaseJWTSecret))
 		{
-			lineups.GET("", lineupHandler.GetUserLineups)
-			lineups.POST("", lineupHandler.CreateLineup)
-			lineups.GET("/:id", lineupHandler.GetLineup)
-			lineups.PUT("/:id", lineupHandler.UpdateLineup)
-			lineups.DELETE("/:id", lineupHandler.DeleteLineup)
-			lineups.POST("/:id/export", lineupHandler.ExportLineup)
+			lineups.Any("/*path", serviceProxy.ProxyOptimizationRequest)
 		}
 
 		// Sports endpoints (proxied to golf service)

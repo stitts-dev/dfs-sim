@@ -1,6 +1,7 @@
 package optimizer
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -8,15 +9,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/stitts-dev/dfs-sim/shared/types"
 	"github.com/sirupsen/logrus"
+	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
 // OptimizationState represents the state in dynamic programming
 type OptimizationState struct {
 	Budget           int                 `json:"budget"`
 	Positions        map[string]int      `json:"positions"`      // Position -> remaining slots
-	UsedPlayers      []uint              `json:"used_players"`   // Changed from UUID to uint for compatibility
+	UsedPlayers      []uuid.UUID         `json:"used_players"`
 	CurrentScore     float64             `json:"current_score"`
 	CorrelationBonus float64             `json:"correlation_bonus"`
 	StateHash        string              `json:"state_hash"`     // For memoization
@@ -25,24 +26,24 @@ type OptimizationState struct {
 // OptimizeConfigV2 represents enhanced optimization configuration with new strategies
 type OptimizeConfigV2 struct {
 	// Existing fields preserved for backward compatibility
-	SalaryCap           int              `json:"salary_cap"`
-	NumLineups          int              `json:"num_lineups"`
-	MinDifferentPlayers int              `json:"min_different_players"`
-	UseCorrelations     bool             `json:"use_correlations"`
-	CorrelationWeight   float64          `json:"correlation_weight"`
-	StackingRules       []StackingRule   `json:"stacking_rules"`
-	LockedPlayers       []uint           `json:"locked_players"`
-	ExcludedPlayers     []uint           `json:"excluded_players"`
-	MinExposure         map[uint]float64 `json:"min_exposure"`
-	MaxExposure         map[uint]float64 `json:"max_exposure"`
-	Contest             *types.Contest  `json:"-"`
-	
+	SalaryCap           int                     `json:"salary_cap"`
+	NumLineups          int                     `json:"num_lineups"`
+	MinDifferentPlayers int                     `json:"min_different_players"`
+	UseCorrelations     bool                    `json:"use_correlations"`
+	CorrelationWeight   float64                 `json:"correlation_weight"`
+	StackingRules       []types.StackingRule    `json:"stacking_rules"`
+	LockedPlayers       []uuid.UUID             `json:"locked_players"`
+	ExcludedPlayers     []uuid.UUID             `json:"excluded_players"`
+	MinExposure         map[uuid.UUID]float64   `json:"min_exposure"`
+	MaxExposure         map[uuid.UUID]float64   `json:"max_exposure"`
+	Contest             *types.Contest          `json:"-"`
+
 	// New strategy options
 	Strategy           OptimizationObjective `json:"strategy"`
 	PlayerAnalytics    bool                  `json:"enable_analytics"`
 	ExposureManagement ExposureConfig        `json:"exposure_config"`
 	PerformanceMode    string               `json:"performance_mode"`  // "speed", "quality", "balanced"
-	
+
 	// Advanced constraints
 	MaxCorrelation     float64              `json:"max_correlation"`
 	MinDiversity       int                  `json:"min_diversity"`
@@ -83,7 +84,7 @@ type DPStats struct {
 // DPResult represents the result of DP optimization
 type DPResult struct {
 	OptimalScore     float64             `json:"optimal_score"`
-	OptimalPlayers   []uint              `json:"optimal_players"`  // Changed from UUID to uint
+	OptimalPlayers   []uuid.UUID         `json:"optimal_players"`
 	StatesExplored   int                 `json:"states_explored"`
 	CacheHitRate     float64             `json:"cache_hit_rate"`
 	OptimizationTime time.Duration       `json:"optimization_time"`
@@ -100,6 +101,102 @@ func NewDPOptimizer() *DPOptimizer {
 		mutex:          sync.RWMutex{},
 		stats:          DPStats{},
 	}
+}
+
+// convertPlayersToOptimization converts types.Player slice to OptimizationPlayer slice
+func (dp *DPOptimizer) convertPlayersToOptimization(players []types.Player) []OptimizationPlayer {
+	result := make([]OptimizationPlayer, len(players))
+	for i, p := range players {
+		result[i] = OptimizationPlayer{
+			ID:              p.ID,               // concrete
+			ExternalID:      p.ExternalID,       // concrete
+			Name:            p.Name,             // concrete
+			Team:            getStringValue(p.Team),
+			Opponent:        getStringValue(p.Opponent),
+			Position:        getStringValue(p.Position),
+			SalaryDK:        getIntValue(p.SalaryDK),
+			SalaryFD:        getIntValue(p.SalaryFD),
+			ProjectedPoints: getFloatValue(p.ProjectedPoints),
+			FloorPoints:     getFloatValue(p.FloorPoints),
+			CeilingPoints:   getFloatValue(p.CeilingPoints),
+			OwnershipDK:     getFloatValue(p.OwnershipDK),
+			OwnershipFD:     getFloatValue(p.OwnershipFD),
+			GameTime:        getTimeValue(p.GameTime),
+			IsInjured:       getBoolValue(p.IsInjured),
+			InjuryStatus:    getStringValue(p.InjuryStatus),
+			ImageURL:        getStringValue(p.ImageURL),
+			// Golf-specific fields - use empty defaults since types.Player doesn't have them
+			TeeTime:         "",
+			CutProbability:  0.0,
+			CreatedAt:       p.CreatedAt,        // concrete
+			UpdatedAt:       p.UpdatedAt,        // concrete
+		}
+	}
+	return result
+}
+
+// convertSinglePlayerToOptimization converts a single types.Player to OptimizationPlayer
+func (dp *DPOptimizer) convertSinglePlayerToOptimization(p types.Player) OptimizationPlayer {
+	return OptimizationPlayer{
+		ID:              p.ID,               // concrete
+		ExternalID:      p.ExternalID,       // concrete
+		Name:            p.Name,             // concrete
+		Team:            getStringValue(p.Team),
+		Opponent:        getStringValue(p.Opponent),
+		Position:        getStringValue(p.Position),
+		SalaryDK:        getIntValue(p.SalaryDK),
+		SalaryFD:        getIntValue(p.SalaryFD),
+		ProjectedPoints: getFloatValue(p.ProjectedPoints),
+		FloorPoints:     getFloatValue(p.FloorPoints),
+		CeilingPoints:   getFloatValue(p.CeilingPoints),
+		OwnershipDK:     getFloatValue(p.OwnershipDK),
+		OwnershipFD:     getFloatValue(p.OwnershipFD),
+		GameTime:        getTimeValue(p.GameTime),
+		IsInjured:       getBoolValue(p.IsInjured),
+		InjuryStatus:    getStringValue(p.InjuryStatus),
+		ImageURL:        getStringValue(p.ImageURL),
+		// Golf-specific fields - use empty defaults since types.Player doesn't have them
+		TeeTime:         "",
+		CutProbability:  0.0,
+		CreatedAt:       p.CreatedAt,        // concrete
+		UpdatedAt:       p.UpdatedAt,        // concrete
+	}
+}
+
+// Helper functions to safely extract values from pointers
+func getStringValue(ptr *string) string {
+	if ptr != nil {
+		return *ptr
+	}
+	return ""
+}
+
+func getIntValue(ptr *int) int {
+	if ptr != nil {
+		return *ptr
+	}
+	return 0
+}
+
+func getFloatValue(ptr *float64) float64 {
+	if ptr != nil {
+		return *ptr
+	}
+	return 0.0
+}
+
+func getBoolValue(ptr *bool) bool {
+	if ptr != nil {
+		return *ptr
+	}
+	return false
+}
+
+func getTimeValue(ptr *time.Time) time.Time {
+	if ptr != nil {
+		return *ptr
+	}
+	return time.Time{}
 }
 
 // OptimizeWithDPV2 performs enhanced dynamic programming optimization
@@ -126,6 +223,9 @@ func (dp *DPOptimizer) OptimizeWithDPV2(players []types.Player, config OptimizeC
 		return nil, fmt.Errorf("no players available after filtering")
 	}
 
+	// Convert to optimization players for algorithm compatibility
+	optimizationPlayers := dp.convertPlayersToOptimization(filteredPlayers)
+
 	// Calculate player analytics if enabled
 	var enhancedPlayers []EnhancedPlayer
 	if config.PlayerAnalytics {
@@ -144,13 +244,13 @@ func (dp *DPOptimizer) OptimizeWithDPV2(players []types.Player, config OptimizeC
 	dp.sortPlayersByValue(enhancedPlayers, config.Strategy)
 
 	// Initialize correlation matrix
-	dp.correlations = NewCorrelationMatrix(filteredPlayers)
+	dp.correlations = NewCorrelationMatrix(optimizationPlayers)
 
 	// Get position slots for this sport/platform
 	sportName := getSportNameFromID(config.Contest.SportID)
 	slots := GetPositionSlots(sportName, config.Contest.Platform)
 	if len(slots) == 0 {
-		return nil, fmt.Errorf("no position slots found for sport %s (ID: %s), platform %s", 
+		return nil, fmt.Errorf("no position slots found for sport %s (ID: %s), platform %s",
 			sportName, config.Contest.SportID.String(), config.Contest.Platform)
 	}
 
@@ -213,9 +313,9 @@ func (dp *DPOptimizer) OptimizeWithDP(players []types.Player, config OptimizeCon
 
 	// Convert first lineup back to old format
 	lineup := lineups[0]
-	playerIDs := make([]uint, len(lineup.Players))
+	playerIDs := make([]uuid.UUID, len(lineup.Players))
 	for i, player := range lineup.Players {
-		playerIDs[i] = uint(player.ID.ID())
+		playerIDs[i] = player.ID
 	}
 
 	return &DPResult{
@@ -233,13 +333,13 @@ func (dp *DPOptimizer) OptimizeWithDP(players []types.Player, config OptimizeCon
 func (dp *DPOptimizer) filterPlayers(players []types.Player, config OptimizeConfigV2) []types.Player {
 	excludeMap := make(map[uint]bool)
 	for _, id := range config.ExcludedPlayers {
-		excludeMap[id] = true
+		excludeMap[uint(id.ID())] = true
 	}
 
 	filtered := make([]types.Player, 0, len(players))
 	for _, player := range players {
 		playerID := uint(player.ID.ID())
-		if excludeMap[playerID] || player.IsInjured {
+		if excludeMap[playerID] || (player.IsInjured != nil && *player.IsInjured) {
 			continue
 		}
 		filtered = append(filtered, player)
@@ -255,18 +355,18 @@ func (dp *DPOptimizer) filterPlayers(players []types.Player, config OptimizeConf
 }
 
 // calculateAnalytics computes analytics for all players
-func (dp *DPOptimizer) calculateAnalytics(players []types.Player) (map[uint]*PlayerAnalytics, error) {
+func (dp *DPOptimizer) calculateAnalytics(players []types.Player) (map[uuid.UUID]*PlayerAnalytics, error) {
 	// In production, this would load historical data from database
-	historicalDataMap := make(map[uint][]PerformanceData)
-	
+	historicalDataMap := make(map[uuid.UUID][]PerformanceData)
+
 	return dp.analytics.CalculateBulkAnalytics(players, historicalDataMap)
 }
 
 // convertToEnhanced converts players to enhanced format
-func (dp *DPOptimizer) convertToEnhanced(players []types.Player, analytics map[uint]*PlayerAnalytics) []EnhancedPlayer {
+func (dp *DPOptimizer) convertToEnhanced(players []types.Player, analytics map[uuid.UUID]*PlayerAnalytics) []EnhancedPlayer {
 	enhanced := make([]EnhancedPlayer, len(players))
 	for i, player := range players {
-		playerID := uint(player.ID.ID())
+		playerID := player.ID
 		enhanced[i] = EnhancedPlayer{
 			Player:    player,
 			Analytics: analytics[playerID],
@@ -292,7 +392,7 @@ func (dp *DPOptimizer) generateLineupsDP(players []EnhancedPlayer, slots []Posit
 	}
 
 	lineups := make([]*lineupCandidate, 0, maxLineups)
-	
+
 	// Use simplified approach for now - can be enhanced with full DP table later
 	for i := 0; i < config.NumLineups; i++ {
 		lineup := dp.generateSingleLineup(players, slots, config)
@@ -324,7 +424,9 @@ func (dp *DPOptimizer) generateSingleLineup(players []EnhancedPlayer, slots []Po
 				continue
 			}
 
-			if !CanPlayerFillSlot(player, slot) {
+			// Convert to OptimizationPlayer for slot checking
+			optimizationPlayer := dp.convertSinglePlayerToOptimization(player)
+			if !CanPlayerFillSlot(optimizationPlayer, slot) {
 				continue
 			}
 
@@ -355,7 +457,7 @@ func (dp *DPOptimizer) generateSingleLineup(players []EnhancedPlayer, slots []Po
 			totalSalary:     totalSalary,
 			projectedPoints: totalScore,
 			positions:       make(map[string][]types.Player),
-			playerPositions: make(map[uint]string),
+			playerPositions: make(map[uuid.UUID]string),
 		}
 	}
 
@@ -365,10 +467,13 @@ func (dp *DPOptimizer) generateSingleLineup(players []EnhancedPlayer, slots []Po
 // getPlayerSalary returns appropriate salary based on platform
 func (dp *DPOptimizer) getPlayerSalary(player types.Player, config OptimizeConfigV2) int {
 	// Default to DraftKings, fallback to FanDuel
-	if player.SalaryDK > 0 {
-		return player.SalaryDK
+	if player.SalaryDK != nil && *player.SalaryDK > 0 {
+		return *player.SalaryDK
 	}
-	return player.SalaryFD
+	if player.SalaryFD != nil && *player.SalaryFD > 0 {
+		return *player.SalaryFD
+	}
+	return 0
 }
 
 // applyConstraints applies diversity and exposure constraints
@@ -397,18 +502,30 @@ func (dp *DPOptimizer) applyConstraints(lineups []*lineupCandidate, config Optim
 // convertToGeneratedLineups converts internal format to API format
 func (dp *DPOptimizer) convertToGeneratedLineups(lineups []*lineupCandidate, config OptimizeConfigV2) []types.GeneratedLineup {
 	result := make([]types.GeneratedLineup, len(lineups))
-	
+
 	for i, lineup := range lineups {
 		// Convert Player slice to LineupPlayer slice
 		lineupPlayers := make([]types.LineupPlayer, len(lineup.players))
 		for j, player := range lineup.players {
+			team := ""
+			if player.Team != nil {
+				team = *player.Team
+			}
+			position := ""
+			if player.Position != nil {
+				position = *player.Position
+			}
+			projectedPoints := 0.0
+			if player.ProjectedPoints != nil {
+				projectedPoints = *player.ProjectedPoints
+			}
 			lineupPlayers[j] = types.LineupPlayer{
 				ID:              player.ID,
 				Name:            player.Name,
-				Team:            player.Team,
-				Position:        player.Position,
+				Team:            team,
+				Position:        position,
 				Salary:          dp.getPlayerSalary(player, config),
-				ProjectedPoints: player.ProjectedPoints,
+				ProjectedPoints: projectedPoints,
 			}
 		}
 
@@ -421,7 +538,7 @@ func (dp *DPOptimizer) convertToGeneratedLineups(lineups []*lineupCandidate, con
 			StackDescription: "", // TODO: Add stack description logic
 		}
 	}
-	
+
 	return result
 }
 
@@ -429,7 +546,7 @@ func (dp *DPOptimizer) convertToGeneratedLineups(lineups []*lineupCandidate, con
 func (dp *DPOptimizer) clearMemoTable() {
 	dp.mutex.Lock()
 	defer dp.mutex.Unlock()
-	
+
 	dp.memoTable = make(map[string]*OptimizationState)
 	dp.stats = DPStats{}
 }
@@ -465,7 +582,7 @@ func (dp *DPOptimizer) dpOptimize(players []types.Player, state *OptimizationSta
 
 	// Generate state hash for memoization
 	stateHash := dp.generateStateHash(state)
-	
+
 	// Check memoization table
 	if cachedState, exists := dp.memoTable[stateHash]; exists {
 		dp.stats.CacheHits++
@@ -488,7 +605,7 @@ func (dp *DPOptimizer) dpOptimize(players []types.Player, state *OptimizationSta
 	// Try each eligible player for this position
 	for _, player := range players {
 		// Skip if player already used
-		if dp.isPlayerUsed(uint(player.ID.ID()), state.UsedPlayers) {
+		if dp.isPlayerUsed(player.ID, state.UsedPlayers) {
 			continue
 		}
 
@@ -505,7 +622,7 @@ func (dp *DPOptimizer) dpOptimize(players []types.Player, state *OptimizationSta
 
 		// Create new state with this player
 		newState := dp.createNewState(state, player, playerSalary, platform)
-		
+
 		// Pruning: skip if this state can't possibly beat current best
 		if dp.pruningEnabled && bestScore > 0 {
 			maxPossibleScore := dp.estimateMaxPossibleScore(newState, players, platform)
@@ -549,7 +666,7 @@ func (dp *DPOptimizer) getPositionSlots(contest *types.Contest) map[string]int {
 
 	// Convert position requirements to map
 	slots := make(map[string]int)
-	
+
 	// This would need to be adapted based on your PositionRequirements structure
 	// For now, providing common DFS position structures
 	switch contest.Platform {
@@ -595,25 +712,25 @@ func (dp *DPOptimizer) isLineupComplete(state *OptimizationState) bool {
 func (dp *DPOptimizer) getNextPosition(state *OptimizationState) string {
 	// Fill positions in priority order (core positions first)
 	positionPriority := []string{"QB", "PG", "RB", "SG", "WR", "SF", "TE", "PF", "C", "K", "DST", "G", "F", "UTIL"}
-	
+
 	for _, position := range positionPriority {
 		if remaining, exists := state.Positions[position]; exists && remaining > 0 {
 			return position
 		}
 	}
-	
+
 	// If no priority position found, return any remaining position
 	for position, remaining := range state.Positions {
 		if remaining > 0 {
 			return position
 		}
 	}
-	
+
 	return ""
 }
 
 // isPlayerUsed checks if a player is already in the lineup
-func (dp *DPOptimizer) isPlayerUsed(playerID uint, usedPlayers []uint) bool {
+func (dp *DPOptimizer) isPlayerUsed(playerID uuid.UUID, usedPlayers []uuid.UUID) bool {
 	for _, usedID := range usedPlayers {
 		if usedID == playerID {
 			return true
@@ -624,13 +741,16 @@ func (dp *DPOptimizer) isPlayerUsed(playerID uint, usedPlayers []uint) bool {
 
 // isPlayerEligible checks if a player can fill a position slot
 func (dp *DPOptimizer) isPlayerEligible(player types.Player, position string) bool {
-	playerPos := player.Position
-	
+	playerPos := ""
+	if player.Position != nil {
+		playerPos = *player.Position
+	}
+
 	// Direct position match
 	if playerPos == position {
 		return true
 	}
-	
+
 	// Handle flex positions
 	switch position {
 	case "G": // Guard (PG or SG)
@@ -642,7 +762,7 @@ func (dp *DPOptimizer) isPlayerEligible(player types.Player, position string) bo
 	case "FLEX": // Flex (RB, WR, TE for NFL)
 		return playerPos == "RB" || playerPos == "WR" || playerPos == "TE"
 	}
-	
+
 	return false
 }
 
@@ -662,13 +782,16 @@ func (dp *DPOptimizer) createNewState(state *OptimizationState, player types.Pla
 	}
 
 	// Copy used players and add new one
-	newUsedPlayers := make([]uint, len(state.UsedPlayers)+1)
+	newUsedPlayers := make([]uuid.UUID, len(state.UsedPlayers)+1)
 	copy(newUsedPlayers, state.UsedPlayers)
-	newUsedPlayers[len(state.UsedPlayers)] = uint(player.ID.ID())
+	newUsedPlayers[len(state.UsedPlayers)] = player.ID
 
 	// Calculate score improvement
-	scoreImprovement := player.ProjectedPoints
-	
+	scoreImprovement := 0.0
+	if player.ProjectedPoints != nil {
+		scoreImprovement = *player.ProjectedPoints
+	}
+
 	// Add correlation bonus if correlations enabled
 	correlationBonus := 0.0
 	if dp.correlations != nil {
@@ -693,7 +816,7 @@ func (dp *DPOptimizer) generateStateHash(state *OptimizationState) string {
 	hashParts := []string{
 		fmt.Sprintf("budget:%d", state.Budget),
 	}
-	
+
 	// Add position requirements
 	positions := make([]string, 0, len(state.Positions))
 	for pos, count := range state.Positions {
@@ -701,10 +824,10 @@ func (dp *DPOptimizer) generateStateHash(state *OptimizationState) string {
 	}
 	sort.Strings(positions) // Ensure consistent ordering
 	hashParts = append(hashParts, strings.Join(positions, ","))
-	
+
 	// Add used players count (to avoid same players in different order)
 	hashParts = append(hashParts, fmt.Sprintf("players:%d", len(state.UsedPlayers)))
-	
+
 	return strings.Join(hashParts, "|")
 }
 
@@ -712,44 +835,47 @@ func (dp *DPOptimizer) generateStateHash(state *OptimizationState) string {
 func (dp *DPOptimizer) estimateMaxPossibleScore(state *OptimizationState, players []types.Player, platform string) float64 {
 	maxScore := state.CurrentScore
 	remainingBudget := state.Budget
-	
+
 	// For each remaining position, find the best possible player
 	for position, count := range state.Positions {
 		if count <= 0 {
 			continue
 		}
-		
+
 		bestValueForPosition := 0.0
 		for _, player := range players {
 			// Skip if already used
-			if dp.isPlayerUsed(uint(player.ID.ID()), state.UsedPlayers) {
+			if dp.isPlayerUsed(player.ID, state.UsedPlayers) {
 				continue
 			}
-			
+
 			// Skip if not eligible
 			if !dp.isPlayerEligible(player, position) {
 				continue
 			}
-			
+
 			// Skip if too expensive
 			salary := getSalaryForPlatform(player, platform)
 			if salary > remainingBudget {
 				continue
 			}
-			
+
 			// Calculate value per dollar
-			value := player.ProjectedPoints / float64(salary)
+			value := 0.0
+			if player.ProjectedPoints != nil {
+				value = *player.ProjectedPoints / float64(salary)
+			}
 			if value > bestValueForPosition {
 				bestValueForPosition = value
 			}
 		}
-		
+
 		// Estimate points for this position
 		estimatedBudgetPerPosition := remainingBudget / dp.getTotalRemainingSlots(state)
 		estimatedPoints := bestValueForPosition * float64(estimatedBudgetPerPosition)
 		maxScore += estimatedPoints * float64(count)
 	}
-	
+
 	return maxScore
 }
 
@@ -763,7 +889,7 @@ func (dp *DPOptimizer) getTotalRemainingSlots(state *OptimizationState) int {
 }
 
 // calculateCorrelationBonus calculates correlation bonus for adding a player
-func (dp *DPOptimizer) calculateCorrelationBonus(player types.Player, usedPlayers []uint) float64 {
+func (dp *DPOptimizer) calculateCorrelationBonus(player types.Player, usedPlayers []uuid.UUID) float64 {
 	if dp.correlations == nil {
 		return 0.0
 	}
@@ -773,27 +899,37 @@ func (dp *DPOptimizer) calculateCorrelationBonus(player types.Player, usedPlayer
 		// This would use the actual correlation matrix
 		// For now, providing a simple team-based correlation
 		correlation := dp.getSimpleCorrelation(player, usedPlayerID)
-		bonus += correlation * player.ProjectedPoints * 0.1 // 10% correlation weight
+		if player.ProjectedPoints != nil {
+			bonus += correlation * (*player.ProjectedPoints) * 0.1 // 10% correlation weight
+		}
 	}
 
 	return bonus
 }
 
 // getSimpleCorrelation provides basic correlation calculation
-func (dp *DPOptimizer) getSimpleCorrelation(player types.Player, otherPlayerID uint) float64 {
+func (dp *DPOptimizer) getSimpleCorrelation(player types.Player, otherPlayerID uuid.UUID) float64 {
 	// Placeholder for correlation calculation
 	// In production, this would look up the actual correlation matrix
-	
+
 	// Same team correlation
-	if player.Team != "" {
+	team := ""
+	if player.Team != nil {
+		team = *player.Team
+	}
+	if team != "" {
 		return 0.2 // 20% positive correlation for teammates
 	}
-	
+
 	// Opponent correlation (game stack)
-	if player.Opponent != "" {
+	opponent := ""
+	if player.Opponent != nil {
+		opponent = *player.Opponent
+	}
+	if opponent != "" {
 		return 0.1 // 10% positive correlation for game stack
 	}
-	
+
 	return 0.0
 }
 
@@ -828,4 +964,12 @@ func (dp *DPOptimizer) SetPruning(enabled bool) {
 // SetMaxDepth sets the maximum recursion depth
 func (dp *DPOptimizer) SetMaxDepth(depth int) {
 	dp.maxDepth = depth
+}
+
+// Implement BaseOptimizerInterface
+func (dp *DPOptimizer) Optimize(ctx context.Context, request *types.OptimizationRequest) (*types.OptimizationResult, error) {
+    // TODO: Implement by calling appropriate optimization method
+    return &types.OptimizationResult{
+        Lineups: []types.GeneratedLineup{},
+    }, nil
 }

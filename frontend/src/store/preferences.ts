@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { useAuthStore } from './auth'
+import { useUnifiedAuthStore } from './unifiedAuth'
 import { apiFetch, apiPut } from '@/services/apiClient'
 
 interface PreferencesState {
@@ -101,7 +101,8 @@ export const usePreferencesStore = create<PreferencesState>()(
       
       // Backend integration methods
       loadUserPreferences: async () => {
-        const { token } = useAuthStore.getState()
+        const { phoneToken, supabaseSession, authMethod } = useUnifiedAuthStore.getState()
+        const token = authMethod === 'phone' ? phoneToken : supabaseSession?.access_token
         if (!token) return
         
         set({ isLoading: true })
@@ -129,7 +130,8 @@ export const usePreferencesStore = create<PreferencesState>()(
       },
       
       saveUserPreferences: async () => {
-        const { token } = useAuthStore.getState()
+        const { phoneToken, supabaseSession, authMethod } = useUnifiedAuthStore.getState()
+        const token = authMethod === 'phone' ? phoneToken : supabaseSession?.access_token
         if (!token) return
         
         const state = get()
@@ -149,7 +151,8 @@ export const usePreferencesStore = create<PreferencesState>()(
       },
       
       syncWithBackend: async () => {
-        const { token } = useAuthStore.getState()
+        const { phoneToken, supabaseSession, authMethod } = useUnifiedAuthStore.getState()
+        const token = authMethod === 'phone' ? phoneToken : supabaseSession?.access_token
         if (!token) return
         
         await get().loadUserPreferences()

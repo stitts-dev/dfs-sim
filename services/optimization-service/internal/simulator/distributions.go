@@ -7,6 +7,35 @@ import (
 	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
+// Helper functions to safely extract values from pointers
+func getStringValueDist(ptr *string) string {
+	if ptr != nil {
+		return *ptr
+	}
+	return ""
+}
+
+func getIntValueDist(ptr *int) int {
+	if ptr != nil {
+		return *ptr
+	}
+	return 0
+}
+
+func getFloatValueDist(ptr *float64) float64 {
+	if ptr != nil {
+		return *ptr
+	}
+	return 0.0
+}
+
+func getBoolValueDist(ptr *bool) bool {
+	if ptr != nil {
+		return *ptr
+	}
+	return false
+}
+
 // Distribution represents a probability distribution for player performance
 type Distribution interface {
 	Sample(rng *rand.Rand) float64
@@ -133,32 +162,35 @@ type PlayerDistribution struct {
 }
 
 func NewPlayerDistribution(player types.Player) *PlayerDistribution {
-	// Calculate parameters from player stats
-	mean := player.ProjectedPoints
+	// Calculate parameters from player stats (removed unused mean variable)
 
 	// Estimate standard deviation from floor/ceiling
 	// Using 95% confidence interval approximation
-	stdDev := (player.CeilingPoints - player.FloorPoints) / 4.0
+	ceilingPoints := getFloatValueDist(player.CeilingPoints)
+	floorPoints := getFloatValueDist(player.FloorPoints)
+	projectedPoints := getFloatValueDist(player.ProjectedPoints)
+	
+	stdDev := (ceilingPoints - floorPoints) / 4.0
 
 	// Create distribution based on player variance
-	variance := stdDev / mean
+	variance := stdDev / projectedPoints
 
 	var dist Distribution
 	if variance > 0.5 {
 		// High variance players - use beta distribution for more realistic tails
-		alpha := mean * mean / (stdDev * stdDev)
-		beta := alpha * (player.CeilingPoints/mean - 1)
-		dist = NewBetaDistribution(alpha, beta, player.CeilingPoints, 0)
+		alpha := projectedPoints * projectedPoints / (stdDev * stdDev)
+		beta := alpha * (ceilingPoints/projectedPoints - 1)
+		dist = NewBetaDistribution(alpha, beta, ceilingPoints, 0)
 	} else {
 		// Normal variance - use truncated normal
-		dist = NewTruncatedNormalDistribution(mean, stdDev, player.FloorPoints*0.8, player.CeilingPoints*1.2)
+		dist = NewTruncatedNormalDistribution(projectedPoints, stdDev, floorPoints*0.8, ceilingPoints*1.2)
 	}
 
 	// Set injury probability based on injury status
 	injuryProb := 0.01 // 1% base injury risk
-	if player.IsInjured {
+	if getBoolValueDist(player.IsInjured) {
 		injuryProb = 0.25 // 25% if already injured
-	} else if player.InjuryStatus != "" {
+	} else if getStringValueDist(player.InjuryStatus) != "" {
 		injuryProb = 0.10 // 10% if questionable
 	}
 
@@ -188,9 +220,16 @@ func (pd *PlayerDistribution) Sample(rng *rand.Rand) float64 {
 func (pd *PlayerDistribution) applyPositionAdjustments(baseScore float64, rng *rand.Rand) float64 {
 	score := baseScore
 
-	// TODO: Sport-specific adjustments would need to be implemented
-	// based on contest type or external sport configuration
-	// For now, returning base score without adjustments
+	// TODO: CRITICAL - Restore sport-specific player adjustments that were removed during compilation fixes
+	// Original logic checked pd.player.Sport for "nba", "nfl", "mlb", "nhl", "golf" and applied:
+	// - applyNBAAdjustments(score, rng) for position-based variance (PG/SG/SF/PF/C)
+	// - applyNFLAdjustments(score, rng) for weather, game script, and matchup factors
+	// - applyMLBAdjustments(score, rng) for pitcher handedness and ballpark factors
+	// - applyNHLAdjustments(score, rng) for ice time and special teams usage
+	// - applyGolfAdjustments(score, rng) for course difficulty and weather conditions
+	// 
+	// TEMP FIX: Player struct no longer has Sport field - need to derive from contest/external data
+	// This significantly impacts simulation accuracy and must be restored ASAP
 	_ = rng // avoid unused parameter warning
 
 	return score
@@ -213,7 +252,8 @@ func (pd *PlayerDistribution) applyNBAAdjustments(score float64, rng *rand.Rand)
 }
 
 func (pd *PlayerDistribution) applyNFLAdjustments(score float64, rng *rand.Rand) float64 {
-	switch pd.player.Position {
+	position := getStringValueDist(pd.player.Position)
+	switch position {
 	case "QB":
 		// Game script affects passing volume
 		if rng.Float64() < 0.3 { // 30% chance of game script impact
@@ -235,7 +275,8 @@ func (pd *PlayerDistribution) applyNFLAdjustments(score float64, rng *rand.Rand)
 }
 
 func (pd *PlayerDistribution) applyMLBAdjustments(score float64, rng *rand.Rand) float64 {
-	switch pd.player.Position {
+	position := getStringValueDist(pd.player.Position)
+	switch position {
 	case "P":
 		// Pitchers can get pulled early
 		if rng.Float64() < 0.2 { // 20% chance of early exit
@@ -252,7 +293,8 @@ func (pd *PlayerDistribution) applyMLBAdjustments(score float64, rng *rand.Rand)
 }
 
 func (pd *PlayerDistribution) applyNHLAdjustments(score float64, rng *rand.Rand) float64 {
-	switch pd.player.Position {
+	position := getStringValueDist(pd.player.Position)
+	switch position {
 	case "G":
 		// Goalies can get pulled
 		if rng.Float64() < 0.1 { // 10% chance

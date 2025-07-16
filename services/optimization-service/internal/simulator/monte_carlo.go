@@ -72,9 +72,12 @@ type Simulator struct {
 
 // NewSimulator creates a new Monte Carlo simulator
 func NewSimulator(config *SimulationConfig, players []types.Player) *Simulator {
+	// Convert to OptimizationPlayer for correlation matrix
+	optimizationPlayers := convertPlayersToOptimizationMC(players)
+	
 	return &Simulator{
 		config:       config,
-		correlations: optimizer.NewCorrelationMatrix(players),
+		correlations: optimizer.NewCorrelationMatrix(optimizationPlayers),
 		rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
@@ -262,7 +265,15 @@ func (s *Simulator) calculateRanks(scores []float64) []int {
 }
 
 // hashUUID converts a UUID to a uint32 for compatibility with correlation matrix
-// TODO: This is a temporary solution - ideally correlation matrix should use UUIDs
+// TODO: CRITICAL - This is a temporary hash-based solution with significant limitations:
+// 1. Hash collisions can cause incorrect correlations between different players
+// 2. Correlation matrix should be refactored to use UUID keys instead of uint
+// 3. This breaks historical correlation data that used sequential uint IDs
+// 4. Performance impact from hash computation on every correlation lookup
+// 
+// PROPER SOLUTION: Update CorrelationMatrix struct to use map[uuid.UUID]map[uuid.UUID]float64
+// and migrate existing correlation data to use UUID keys
+// TEMP FIX: Using CRC32 hash for compilation compatibility only
 func hashUUID(id uuid.UUID) uint {
 	return uint(crc32.ChecksumIEEE(id[:]))
 }
@@ -451,4 +462,71 @@ func calculateROI(payouts []float64, entryFee float64) float64 {
 	}
 	avgPayout := calculateMean(payouts)
 	return (avgPayout - entryFee) / entryFee * 100
+}
+
+// convertPlayersToOptimizationMC converts types.Player slice to optimizer.OptimizationPlayer slice
+func convertPlayersToOptimizationMC(players []types.Player) []optimizer.OptimizationPlayer {
+	result := make([]optimizer.OptimizationPlayer, len(players))
+	for i, p := range players {
+		result[i] = optimizer.OptimizationPlayer{
+			ID:              p.ID,
+			ExternalID:      p.ExternalID,
+			Name:            p.Name,
+			Team:            getStringValueMC(p.Team),
+			Opponent:        getStringValueMC(p.Opponent),
+			Position:        getStringValueMC(p.Position),
+			SalaryDK:        getIntValueMC(p.SalaryDK),
+			SalaryFD:        getIntValueMC(p.SalaryFD),
+			ProjectedPoints: getFloatValueMC(p.ProjectedPoints),
+			FloorPoints:     getFloatValueMC(p.FloorPoints),
+			CeilingPoints:   getFloatValueMC(p.CeilingPoints),
+			OwnershipDK:     getFloatValueMC(p.OwnershipDK),
+			OwnershipFD:     getFloatValueMC(p.OwnershipFD),
+			GameTime:        getTimeValueMC(p.GameTime),
+			IsInjured:       getBoolValueMC(p.IsInjured),
+			InjuryStatus:    getStringValueMC(p.InjuryStatus),
+			ImageURL:        getStringValueMC(p.ImageURL),
+			TeeTime:         "",
+			CutProbability:  0.0,
+			CreatedAt:       p.CreatedAt,
+			UpdatedAt:       p.UpdatedAt,
+		}
+	}
+	return result
+}
+
+// Helper functions to safely extract values from pointers
+func getStringValueMC(ptr *string) string {
+	if ptr != nil {
+		return *ptr
+	}
+	return ""
+}
+
+func getIntValueMC(ptr *int) int {
+	if ptr != nil {
+		return *ptr
+	}
+	return 0
+}
+
+func getFloatValueMC(ptr *float64) float64 {
+	if ptr != nil {
+		return *ptr
+	}
+	return 0.0
+}
+
+func getBoolValueMC(ptr *bool) bool {
+	if ptr != nil {
+		return *ptr
+	}
+	return false
+}
+
+func getTimeValueMC(ptr *time.Time) time.Time {
+	if ptr != nil {
+		return *ptr
+	}
+	return time.Time{}
 }

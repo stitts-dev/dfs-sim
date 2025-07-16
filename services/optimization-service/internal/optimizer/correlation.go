@@ -15,7 +15,7 @@ type CorrelationMatrix struct {
 }
 
 // NewCorrelationMatrix creates a new correlation matrix from players
-func NewCorrelationMatrix(players []types.Player) *CorrelationMatrix {
+func NewCorrelationMatrix(players []OptimizationPlayer) *CorrelationMatrix {
 	cm := &CorrelationMatrix{
 		correlations: make(map[uint]map[uint]float64),
 		byTeam:       make(map[string][]uint),
@@ -26,10 +26,16 @@ func NewCorrelationMatrix(players []types.Player) *CorrelationMatrix {
 	// Organize players
 	for _, player := range players {
 		playerID := uint(player.ID.ID())
-		cm.byTeam[player.Team] = append(cm.byTeam[player.Team], playerID)
-		cm.byPosition[player.Position] = append(cm.byPosition[player.Position], playerID)
+		
+		// Direct field access since OptimizationPlayer has concrete fields
+		team := player.Team
+		position := player.Position
+		opponent := player.Opponent
+		
+		cm.byTeam[team] = append(cm.byTeam[team], playerID)
+		cm.byPosition[position] = append(cm.byPosition[position], playerID)
 
-		gameKey := getGameKey(player.Team, player.Opponent)
+		gameKey := getGameKey(team, opponent)
 		cm.byGame[gameKey] = append(cm.byGame[gameKey], playerID)
 	}
 
@@ -39,8 +45,8 @@ func NewCorrelationMatrix(players []types.Player) *CorrelationMatrix {
 	return cm
 }
 
-func (cm *CorrelationMatrix) calculateCorrelations(players []types.Player) {
-	playerMap := make(map[uint]types.Player)
+func (cm *CorrelationMatrix) calculateCorrelations(players []OptimizationPlayer) {
+	playerMap := make(map[uint]OptimizationPlayer)
 	for _, p := range players {
 		playerMap[uint(p.ID.ID())] = p
 	}
@@ -69,28 +75,36 @@ func (cm *CorrelationMatrix) calculateCorrelations(players []types.Player) {
 	}
 }
 
-func (cm *CorrelationMatrix) calculatePairCorrelation(p1, p2 types.Player) float64 {
+func (cm *CorrelationMatrix) calculatePairCorrelation(p1, p2 OptimizationPlayer) float64 {
 	correlation := 0.0
 
 	// Same team correlation (teammates)
-	if p1.Team == p2.Team {
+	p1Team := p1.Team
+	p2Team := p2.Team
+	p1Position := p1.Position
+	p2Position := p2.Position
+	
+	if p1Team == p2Team && p1Team != "" {
 		// Use sport name from position - golf players are "G"
 		sport := "golf" // Default to golf for now, could be enhanced
-		if p1.Position != "G" {
+		if p1Position != "G" {
 			sport = "nba" // Simple heuristic for other sports
 		}
-		correlation += cm.getTeammateCorrelation(p1.Position, p2.Position, sport)
+		correlation += cm.getTeammateCorrelation(p1Position, p2Position, sport)
 	}
 
 	// Same game correlation
-	if getGameKey(p1.Team, p1.Opponent) == getGameKey(p2.Team, p2.Opponent) {
-		if p1.Team != p2.Team {
+	p1Opponent := p1.Opponent
+	p2Opponent := p2.Opponent
+	
+	if getGameKey(p1Team, p1Opponent) == getGameKey(p2Team, p2Opponent) {
+		if p1Team != p2Team {
 			// Opponents
 			sport := "golf" // Default to golf for now
-			if p1.Position != "G" {
+			if p1Position != "G" {
 				sport = "nba" // Simple heuristic for other sports
 			}
-			correlation += cm.getOpponentCorrelation(p1.Position, p2.Position, sport)
+			correlation += cm.getOpponentCorrelation(p1Position, p2Position, sport)
 		}
 	}
 
@@ -248,7 +262,9 @@ func (cm *CorrelationMatrix) GetTeammates(playerID uint, players []types.Player)
 	var playerTeam string
 	for _, p := range players {
 		if uint(p.ID.ID()) == playerID {
-			playerTeam = p.Team
+			if p.Team != nil {
+				playerTeam = *p.Team
+			}
 			break
 		}
 	}
@@ -268,7 +284,15 @@ func (cm *CorrelationMatrix) GetGamePartners(playerID uint, players []types.Play
 	var gameKey string
 	for _, p := range players {
 		if uint(p.ID.ID()) == playerID {
-			gameKey = getGameKey(p.Team, p.Opponent)
+			team := ""
+			if p.Team != nil {
+				team = *p.Team
+			}
+			opponent := ""
+			if p.Opponent != nil {
+				opponent = *p.Opponent
+			}
+			gameKey = getGameKey(team, opponent)
 			break
 		}
 	}
@@ -284,7 +308,7 @@ func (cm *CorrelationMatrix) GetGamePartners(playerID uint, players []types.Play
 }
 
 // CalculateLineupCorrelation calculates the total correlation score for a lineup
-func (cm *CorrelationMatrix) CalculateLineupCorrelation(lineup []types.Player) float64 {
+func (cm *CorrelationMatrix) CalculateLineupCorrelation(lineup []OptimizationPlayer) float64 {
 	if len(lineup) < 2 {
 		return 0.0
 	}

@@ -9,15 +9,18 @@ require (
 	github.com/gorilla/websocket v1.5.0
 	github.com/redis/go-redis/v9 v9.11.0
 	github.com/sirupsen/logrus v1.9.0
-	github.com/sjwhitworth/golearn v0.0.0-20221228163002-74ae077eafb2
+	github.com/stitts-dev/dfs-sim/services/sports-data-service v0.0.0
 	github.com/stitts-dev/dfs-sim/shared v0.0.0
 	github.com/stretchr/testify v1.8.3
 	gonum.org/v1/gonum v0.14.0
 	gorgonia.org/gorgonia v0.9.17
 	gorgonia.org/tensor v0.9.17
+	gorm.io/gorm v1.25.0
 )
 
 replace github.com/stitts-dev/dfs-sim/shared => ../../shared
+
+replace github.com/stitts-dev/dfs-sim/services/sports-data-service => ../sports-data-service
 
 require (
 	github.com/apache/arrow/go/arrow v0.0.0-20210105145422-88aaea5262db // indirect
@@ -38,10 +41,7 @@ require (
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
-	github.com/gonum/blas v0.0.0-20181208220705-f22b278b28ac // indirect
 	github.com/google/flatbuffers v1.12.0 // indirect
-	github.com/google/go-cmp v0.5.9 // indirect
-	github.com/guptarohit/asciigraph v0.5.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
@@ -55,15 +55,12 @@ require (
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
-	github.com/mattn/go-runewidth v0.0.7 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/olekukonko/tablewriter v0.0.4 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.8 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/rocketlaunchr/dataframe-go v0.0.0-20201007021539-67b046771f0b // indirect
 	github.com/spf13/afero v1.9.3 // indirect
 	github.com/spf13/cast v1.5.0 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
@@ -78,7 +75,6 @@ require (
 	golang.org/x/crypto v0.9.0 // indirect
 	golang.org/x/exp v0.0.0-20230321023759-10a507213a29 // indirect
 	golang.org/x/net v0.10.0 // indirect
-	golang.org/x/sync v0.1.0 // indirect
 	golang.org/x/sys v0.8.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	golang.org/x/tools v0.7.0 // indirect
@@ -91,5 +87,4 @@ require (
 	gorgonia.org/vecf32 v0.9.0 // indirect
 	gorgonia.org/vecf64 v0.9.0 // indirect
 	gorm.io/driver/postgres v1.5.0 // indirect
-	gorm.io/gorm v1.25.0 // indirect
 )

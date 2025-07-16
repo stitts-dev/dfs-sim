@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -254,8 +255,8 @@ func (ep *EventProcessor) processPendingEvents(ctx context.Context) {
 			}
 
 			for _, msg := range pending {
-				// Claim old pending messages (older than 60 seconds)
-				if time.Since(msg.LastDelivery) > 60*time.Second {
+				// Claim old pending messages (idle for more than 60 seconds)
+				if msg.Idle > 60*time.Second {
 					claimed, err := ep.redisClient.XClaim(ctx, &redis.XClaimArgs{
 						Stream:   ep.streamName,
 						Group:    ep.consumerGroup,
@@ -424,7 +425,7 @@ func (ep *EventProcessor) handleFailedMessage(ctx context.Context, message redis
 	}
 
 	if eventIDStr, ok := message.Values["event_id"].(string); ok {
-		if eventUUID, err := parseUUID(eventIDStr); err == nil {
+		if eventUUID, err := uuid.Parse(eventIDStr); err == nil {
 			failureLog.EventID = eventUUID
 		}
 	}
@@ -488,7 +489,3 @@ func formatTimePtr(t *time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
-func parseUUID(s string) ([]byte, error) {
-	// Simple UUID string to bytes conversion
-	return []byte(s), nil
-}

@@ -6,6 +6,7 @@ import Optimizer from './pages/Optimizer'
 import Lineups from './pages/Lineups'
 import EnhancedLoginPage from './pages/auth/EnhancedLoginPage'
 import EnhancedSignupPage from './pages/auth/EnhancedSignupPage'
+import AuthCallback from './pages/auth/AuthCallback'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/auth/ProtectedRoute'
 
@@ -27,6 +28,7 @@ function App() {
           {/* Public Routes */}
           <Route path="/auth/login" element={<EnhancedLoginPage />} />
           <Route path="/auth/signup" element={<EnhancedSignupPage />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           
           {/* Protected Routes */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />

@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"log"
 	"sort"
-
-	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
 // PositionSlot represents a position slot in a lineup
@@ -179,7 +177,7 @@ func getGolfSlots(platform string) []PositionSlot {
 }
 
 // CanPlayerFillSlot checks if a player can fill a specific slot
-func CanPlayerFillSlot(player types.Player, slot PositionSlot) bool {
+func CanPlayerFillSlot(player OptimizationPlayer, slot PositionSlot) bool {
 	for _, allowedPos := range slot.AllowedPositions {
 		if player.Position == allowedPos {
 			return true
@@ -189,7 +187,7 @@ func CanPlayerFillSlot(player types.Player, slot PositionSlot) bool {
 }
 
 // AssignPlayersToSlots assigns players to lineup slots based on position compatibility
-func AssignPlayersToSlots(players []types.Player, slots []PositionSlot) ([]SlotAssignment, error) {
+func AssignPlayersToSlots(players []OptimizationPlayer, slots []PositionSlot) ([]SlotAssignment, error) {
 	if len(players) < len(slots) {
 		return nil, fmt.Errorf("not enough players (%d) to fill all slots (%d)", len(players), len(slots))
 	}

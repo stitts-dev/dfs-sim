@@ -9,8 +9,7 @@ import PreferencesModal from '@/components/settings/PreferencesModal'
 import { BeginnerModeToggle } from '@/components/ui/BeginnerModeToggle'
 import { BeginnerTips } from '@/components/ui/BeginnerTips'
 import { usePreferencesStore } from '@/store/preferences'
-import { useAuthStore } from '@/store/auth'
-import { usePhoneAuth } from '@/hooks/usePhoneAuth'
+import { useUnifiedAuthStore } from '@/store/unifiedAuth'
 import { toast } from 'react-hot-toast'
 
 interface LayoutProps {
@@ -21,22 +20,25 @@ export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const { beginnerMode } = usePreferencesStore()
-  const { user } = useAuthStore()
-  const { signOut, isLoggingOut } = usePhoneAuth()
+  const { user, logout } = useUnifiedAuthStore()
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
   const [showPreferences, setShowPreferences] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
   
   // Handle logout
   const handleLogout = async () => {
+    setIsLoggingOut(true)
     try {
-      await signOut()
+      await logout()
       toast.success('Logged out successfully')
       navigate('/auth/login')
     } catch (error) {
       toast.error('Failed to log out')
+    } finally {
+      setIsLoggingOut(false)
+      setShowUserMenu(false)
     }
-    setShowUserMenu(false)
   }
 
   // Add keyboard shortcut for F1
@@ -54,13 +56,22 @@ export default function Layout({ children }: LayoutProps) {
 
   // Close user menu when clicking outside
   React.useEffect(() => {
-    const handleClickOutside = () => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // Don't close if clicking inside the user menu or its trigger
+      const target = event.target as HTMLElement
+      if (target.closest('[data-user-menu]') || target.closest('[data-user-menu-trigger]')) {
+        return
+      }
+      
       if (showUserMenu) {
         setShowUserMenu(false)
       }
     }
     
-    document.addEventListener('click', handleClickOutside)
+    if (showUserMenu) {
+      document.addEventListener('click', handleClickOutside)
+    }
+    
     return () => document.removeEventListener('click', handleClickOutside)
   }, [showUserMenu])
 
@@ -113,44 +124,69 @@ export default function Layout({ children }: LayoutProps) {
           <span className="hidden sm:inline">Help</span>
         </NavbarItem>
         
+        {/* Temporary Logout Button (Backup) */}
+        <NavbarItem
+          onClick={handleLogout}
+          title="Sign out"
+          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+        >
+          <span className="text-lg mr-2">🚪</span>
+          <span className="hidden sm:inline">Logout</span>
+        </NavbarItem>
+        
         {/* User Profile & Logout */}
-        <div className="relative">
-          <NavbarItem
-            onClick={() => setShowUserMenu(!showUserMenu)}
-            title={`Logged in as ${user?.phone_number || 'User'}`}
-            className="flex items-center space-x-2"
+        <div className="relative" data-user-menu-trigger>
+          <button
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setShowUserMenu(!showUserMenu)
+            }}
+            title={`Logged in as ${user?.phone_number || user?.email || 'User'}`}
+            className="flex items-center space-x-2 px-3 py-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
             <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
               {user?.first_name ? user.first_name[0].toUpperCase() : '👤'}
             </div>
             <span className="hidden md:inline text-sm">
-              {user?.first_name || user?.phone_number || 'User'}
+              {user?.first_name || user?.phone_number || user?.email || 'User'}
             </span>
             <span className="text-xs">▼</span>
-          </NavbarItem>
+          </button>
           
           {/* User Menu Dropdown */}
           {showUserMenu && (
-            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
+            <div 
+              data-user-menu
+              className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg border border-gray-200 dark:border-gray-700 z-[9999]"
+            >
               <div className="py-1">
-                <div className="px-4 py-2 text-sm text-gray-700 border-b border-gray-100">
+                <div className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 border-b border-gray-100 dark:border-gray-700">
                   <div className="font-medium">{user?.first_name || 'User'}</div>
-                  <div className="text-xs text-gray-500">{user?.phone_number}</div>
-                  <div className="text-xs text-blue-600 capitalize">{user?.subscription_tier} Plan</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">{user?.phone_number || user?.email}</div>
+                  {user?.subscription_tier && (
+                    <div className="text-xs text-blue-600 dark:text-blue-400 capitalize">{user.subscription_tier} Plan</div>
+                  )}
                 </div>
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
                     setShowPreferences(true)
                     setShowUserMenu(false)
                   }}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                 >
                   Account Settings
                 </button>
                 <button
-                  onClick={handleLogout}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    handleLogout()
+                  }}
                   disabled={isLoggingOut}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
                 >
                   {isLoggingOut ? 'Signing out...' : 'Sign out'}
                 </button>

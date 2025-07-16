@@ -23,8 +23,7 @@ type GolfHandler struct {
 	db                *database.DB
 	cache             *services.CacheService
 	logger            *logrus.Logger
-	rapidAPIProvider  *providers.RapidAPIGolfClient
-	espnProvider      *providers.ESPNGolfClient
+	dataGolfProvider  *providers.DataGolfClient
 	projectionService *services.GolfProjectionService
 	syncService       *services.GolfTournamentSyncService
 	golfSportID       uuid.UUID
@@ -36,27 +35,17 @@ func NewGolfHandler(
 	cache *services.CacheService,
 	projectionService *services.GolfProjectionService,
 	syncService *services.GolfTournamentSyncService,
-	rapidAPIProvider *providers.RapidAPIGolfClient,
-	espnProvider *providers.ESPNGolfClient,
+	dataGolfProvider *providers.DataGolfClient,
 	logger *logrus.Logger,
 ) *GolfHandler {
-	// Get golf sport ID once during initialization
+	// Get golf sport ID lazily to avoid prepared statement conflicts
 	var golfSportID uuid.UUID
-	var sport struct {
-		ID uuid.UUID `gorm:"column:id"`
-	}
-	err := db.Table("sports").Select("id").Where("name = ?", "Golf").First(&sport).Error
-	if err != nil {
-		logger.WithError(err).Fatal("Failed to get golf sport ID - ensure 'Golf' sport exists in database")
-	}
-	golfSportID = sport.ID
 
 	return &GolfHandler{
 		db:                db,
 		cache:             cache,
 		logger:            logger,
-		rapidAPIProvider:  rapidAPIProvider,
-		espnProvider:      espnProvider,
+		dataGolfProvider:  dataGolfProvider,
 		projectionService: projectionService,
 		syncService:       syncService,
 		golfSportID:       golfSportID,
@@ -70,12 +59,12 @@ type GolfProvider interface {
 	GetPlayers(sport types.Sport, date string) ([]types.PlayerData, error)
 }
 
-// getGolfProvider returns the best available golf provider with fallback logic
+// getGolfProvider returns the DataGolf provider
 func (h *GolfHandler) getGolfProvider() GolfProvider {
-	if h.rapidAPIProvider != nil {
-		return h.rapidAPIProvider
+	if h.dataGolfProvider != nil {
+		return h.dataGolfProvider
 	}
-	return h.espnProvider
+	return nil
 }
 
 // ListTournaments returns available golf tournaments
@@ -391,6 +380,14 @@ func (h *GolfHandler) SyncTournamentData(c *gin.Context) {
 		return
 	}
 
+	// Get golf sport ID
+	golfSportID, err := h.getGolfSportID()
+	if err != nil {
+		h.logger.Error("Failed to get golf sport ID", "error", err)
+		utils.SendInternalError(c, "Failed to get golf sport ID")
+		return
+	}
+
 	// Sync player data using best available provider
 	players, err := provider.GetPlayers(types.SportGolf, time.Now().Format("2006-01-02"))
 	if err != nil {
@@ -409,7 +406,7 @@ func (h *GolfHandler) SyncTournamentData(c *gin.Context) {
 				Name:            playerData.Name,
 				Team:            playerData.Team,
 				Position:        "G",
-				SportID:         h.golfSportID,
+				SportID:         golfSportID,
 				ProjectedPoints: playerData.ProjectedPoints,
 				FloorPoints:     playerData.FloorPoints,
 				CeilingPoints:   playerData.CeilingPoints,
@@ -471,7 +468,14 @@ func (h *GolfHandler) SyncTournamentData(c *gin.Context) {
 
 	// Get updated contest count
 	var contestCount int64
-	h.db.Model(&types.Contest{}).Where("sport_id = ? AND is_active = ?", h.golfSportID, true).Count(&contestCount)
+	golfSportID, err = h.getGolfSportID()
+	if err != nil {
+		h.logger.Error("Failed to get golf sport ID", "error", err)
+		utils.SendInternalError(c, "Failed to get golf sport ID")
+		return
+	}
+	
+	h.db.Model(&types.Contest{}).Where("sport_id = ? AND is_active = ?", golfSportID, true).Count(&contestCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":          "Tournament data synced successfully",
@@ -644,7 +648,14 @@ func (h *GolfHandler) GetGolfPlayer(c *gin.Context) {
 	playerID := c.Param("id")
 
 	var player models.Player
-	if err := h.db.First(&player, "id = ? AND sport_id = ?", playerID, h.golfSportID).Error; err != nil {
+	golfSportID, err := h.getGolfSportID()
+	if err != nil {
+		h.logger.Error("Failed to get golf sport ID", "error", err)
+		utils.SendInternalError(c, "Failed to get golf sport ID")
+		return
+	}
+	
+	if err := h.db.First(&player, "id = ? AND sport_id = ?", playerID, golfSportID).Error; err != nil {
 		utils.SendNotFound(c, "Golf player not found")
 		return
 	}
@@ -684,7 +695,14 @@ func (h *GolfHandler) GetPlayerProjections(c *gin.Context) {
 	tournamentID := c.Query("tournament_id")
 
 	var player models.Player
-	if err := h.db.First(&player, "id = ? AND sport_id = ?", playerID, h.golfSportID).Error; err != nil {
+	golfSportID, err := h.getGolfSportID()
+	if err != nil {
+		h.logger.Error("Failed to get golf sport ID", "error", err)
+		utils.SendInternalError(c, "Failed to get golf sport ID")
+		return
+	}
+	
+	if err := h.db.First(&player, "id = ? AND sport_id = ?", playerID, golfSportID).Error; err != nil {
 		utils.SendNotFound(c, "Golf player not found")
 		return
 	}
@@ -725,7 +743,14 @@ func (h *GolfHandler) GetPlayerCourseHistory(c *gin.Context) {
 	courseID := c.Query("course_id")
 
 	var player models.Player
-	if err := h.db.First(&player, "id = ? AND sport_id = ?", playerID, h.golfSportID).Error; err != nil {
+	golfSportID, err := h.getGolfSportID()
+	if err != nil {
+		h.logger.Error("Failed to get golf sport ID", "error", err)
+		utils.SendInternalError(c, "Failed to get golf sport ID")
+		return
+	}
+	
+	if err := h.db.First(&player, "id = ? AND sport_id = ?", playerID, golfSportID).Error; err != nil {
 		utils.SendNotFound(c, "Golf player not found")
 		return
 	}
@@ -1047,4 +1072,26 @@ func (h *GolfHandler) GetContest(c *gin.Context) {
 		"data":    contest,
 		"success": true,
 	})
+}
+
+// getGolfSportID gets the golf sport ID with caching
+func (h *GolfHandler) getGolfSportID() (uuid.UUID, error) {
+	if h.golfSportID != uuid.Nil {
+		return h.golfSportID, nil
+	}
+	
+	var sport struct {
+		ID uuid.UUID `gorm:"column:id"`
+	}
+	err := h.db.Raw("SELECT id FROM sports WHERE name = ? LIMIT 1", "Golf").Scan(&sport).Error
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("failed to get golf sport ID - ensure 'Golf' sport exists in database: %w", err)
+	}
+	
+	if sport.ID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("golf sport not found in database - ensure 'Golf' sport exists")
+	}
+	
+	h.golfSportID = sport.ID
+	return h.golfSportID, nil
 }

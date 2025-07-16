@@ -18,8 +18,8 @@ const (
 	BalancedStrategy  TournamentPositionStrategy = "balanced"
 )
 
-// WeatherImpact represents weather effects on golf performance
-type WeatherImpact struct {
+// StrategyWeatherImpact represents weather effects on golf performance for strategy optimization
+type StrategyWeatherImpact struct {
 	ScoreImpact         float64 `json:"score_impact"`
 	VarianceMultiplier  float64 `json:"variance_multiplier"`
 	SoftConditions      bool    `json:"soft_conditions"`
@@ -29,12 +29,12 @@ type WeatherImpact struct {
 }
 
 // Value implements driver.Valuer for database storage
-func (w WeatherImpact) Value() (driver.Value, error) {
+func (w StrategyWeatherImpact) Value() (driver.Value, error) {
 	return json.Marshal(w)
 }
 
 // Scan implements sql.Scanner for database retrieval
-func (w *WeatherImpact) Scan(value interface{}) error {
+func (w *StrategyWeatherImpact) Scan(value interface{}) error {
 	bytes, ok := value.([]byte)
 	if !ok {
 		return errors.New("type assertion to []byte failed")
@@ -58,6 +58,8 @@ type CutProbability struct {
 // GolfOptimizationRequest extends the base optimization request with golf-specific parameters
 type GolfOptimizationRequest struct {
 	OptimizationRequest
+	TournamentID          string                     `json:"tournament_id"`
+	CourseID             string                     `json:"course_id"`
 	TournamentStrategy    TournamentPositionStrategy `json:"tournament_strategy"`
 	CutOptimization      bool                       `json:"enable_cut_optimization"`
 	WeatherConsideration bool                       `json:"include_weather"`

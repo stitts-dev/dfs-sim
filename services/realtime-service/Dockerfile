@@ -7,14 +7,21 @@ RUN apk add --no-cache git ca-certificates tzdata
 # Set working directory
 WORKDIR /app
 
-# Copy go mod and sum files
+# Copy root go.mod and go.sum first for dependency resolution
 COPY go.mod go.sum ./
+
+# Copy shared module
+COPY shared/ ./shared/
+
+# Copy the service-specific files
+COPY services/realtime-service/go.mod services/realtime-service/go.sum ./services/realtime-service/
+COPY services/realtime-service/ ./services/realtime-service/
+
+# Change to service directory for building
+WORKDIR /app/services/realtime-service
 
 # Download dependencies
 RUN go mod download
-
-# Copy source code
-COPY . .
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o server cmd/server/main.go
@@ -33,10 +40,10 @@ RUN addgroup -g 1001 -S appgroup && \
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /app/server .
+COPY --from=builder /app/services/realtime-service/server .
 
 # Copy migrations (if any)
-COPY --from=builder /app/migrations ./migrations
+COPY --from=builder /app/services/realtime-service/migrations ./migrations
 
 # Change ownership
 RUN chown -R appuser:appgroup /app

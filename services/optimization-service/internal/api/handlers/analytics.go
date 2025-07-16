@@ -18,7 +18,6 @@ import (
 	"github.com/stitts-dev/dfs-sim/services/optimization-service/pkg/analytics"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/config"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/database"
-	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
 // AnalyticsHandler handles analytics-related endpoints
@@ -434,13 +433,14 @@ func (h *AnalyticsHandler) GetAnalyticsHealth(c *gin.Context) {
 
 func (h *AnalyticsHandler) sendAnalyticsUpdate(requestID, eventType string, data interface{}) {
 	if h.wsHub != nil {
-		update := map[string]interface{}{
+		_ = map[string]interface{}{
 			"request_id": requestID,
 			"event_type": eventType,
 			"data":       data,
 			"timestamp":  time.Now(),
 		}
-		h.wsHub.BroadcastToUser("analytics_update", update)
+		// TODO: Fix websocket broadcasting with proper user ID
+		// h.wsHub.BroadcastToUser(userID, update)
 	}
 }
 

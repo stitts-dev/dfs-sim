@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
-import { useAuthStore } from '@/store/auth'
+import { useUnifiedAuthStore } from '@/store/unifiedAuth'
 
 interface ProtectedRouteProps {
   children: ReactNode
@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute = ({ children, redirectTo = '/auth/login' }: ProtectedRouteProps) => {
-  const { isAuthenticated, isLoading } = useAuthStore()
+  const { isAuthenticated, isLoading } = useUnifiedAuthStore()
   const location = useLocation()
 
   // Show loading state while checking authentication

@@ -9,6 +9,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"github.com/stitts-dev/dfs-sim/services/realtime-service/internal/models"
@@ -317,11 +318,22 @@ func (ot *OwnershipTracker) updateContestOwnership(contestID string) error {
 	tracker.EntryCount = snapshot.TotalEntries
 	
 	// Add to history (keep last 100 snapshots)
+	// Convert maps to JSON for database storage
+	var playerOwnershipJSON, stackOwnershipJSON datatypes.JSON
+	if len(snapshot.PlayerOwnership) > 0 {
+		playerBytes, _ := json.Marshal(snapshot.PlayerOwnership)
+		playerOwnershipJSON = playerBytes
+	}
+	if len(snapshot.StackOwnership) > 0 {
+		stackBytes, _ := json.Marshal(snapshot.StackOwnership)
+		stackOwnershipJSON = stackBytes
+	}
+	
 	tracker.OwnershipHistory = append(tracker.OwnershipHistory, models.OwnershipSnapshot{
 		ContestID:       contestID,
 		Timestamp:       snapshot.Timestamp,
-		PlayerOwnership: snapshot.PlayerOwnership,
-		StackOwnership:  snapshot.StackOwnership,
+		PlayerOwnership: playerOwnershipJSON,
+		StackOwnership:  stackOwnershipJSON,
 		TotalEntries:    snapshot.TotalEntries,
 	})
 	
@@ -419,10 +431,17 @@ func (ot *OwnershipTracker) calculateCurrentSnapshot(tracker *ContestTracker) (*
 
 	// Calculate trends and leverage scores
 	if len(tracker.OwnershipHistory) > 0 {
+		// Convert previous ownership from JSON to map
+		prevOwnership := make(map[uint]float64)
+		lastSnapshot := tracker.OwnershipHistory[len(tracker.OwnershipHistory)-1]
+		if len(lastSnapshot.PlayerOwnership) > 0 {
+			json.Unmarshal(lastSnapshot.PlayerOwnership, &prevOwnership)
+		}
+		
 		snapshot.ChangeVelocity = ot.trendAnalyzer.CalculateVelocity(
-			tracker.OwnershipHistory[len(tracker.OwnershipHistory)-1].PlayerOwnership,
+			prevOwnership,
 			snapshot.PlayerOwnership,
-			time.Since(tracker.OwnershipHistory[len(tracker.OwnershipHistory)-1].Timestamp),
+			time.Since(lastSnapshot.Timestamp),
 		)
 	}
 

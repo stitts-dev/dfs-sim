@@ -421,7 +421,11 @@ func (em *ExposureManager) analyzeExistingLineups(lineups [][]types.Player) {
 	for _, lineup := range lineups {
 		for _, player := range lineup {
 			em.playerCount[player.ID]++
-			em.teamCount[player.Team]++
+			team := ""
+			if player.Team != nil {
+				team = *player.Team
+			}
+			em.teamCount[team]++
 		}
 	}
 }
@@ -474,8 +478,24 @@ func (em *ExposureManager) findReplacementPlayer(original types.Player, underExp
 	salaryRange := 1000 // Allow $1000 difference
 	
 	for _, candidate := range underExposed {
-		if candidate.Position == original.Position {
-			salaryDiff := int(math.Abs(float64(candidate.SalaryDK - original.SalaryDK)))
+		candidatePosition := ""
+		if candidate.Position != nil {
+			candidatePosition = *candidate.Position
+		}
+		originalPosition := ""
+		if original.Position != nil {
+			originalPosition = *original.Position
+		}
+		if candidatePosition == originalPosition {
+			candidateSalary := 0
+			if candidate.SalaryDK != nil {
+				candidateSalary = *candidate.SalaryDK
+			}
+			originalSalary := 0
+			if original.SalaryDK != nil {
+				originalSalary = *original.SalaryDK
+			}
+			salaryDiff := int(math.Abs(float64(candidateSalary - originalSalary)))
 			if salaryDiff <= salaryRange {
 				return &candidate
 			}

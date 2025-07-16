@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/stitts-dev/dfs-sim/shared/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -50,7 +49,7 @@ func NewObjectiveManager(config ObjectiveConfig, analytics *AnalyticsEngine, cor
 }
 
 // CalculateObjectiveScore computes player score based on optimization objective
-func (om *ObjectiveManager) CalculateObjectiveScore(player types.Player, lineup []types.Player, analytics *PlayerAnalytics) float64 {
+func (om *ObjectiveManager) CalculateObjectiveScore(player OptimizationPlayer, lineup []OptimizationPlayer, analytics *PlayerAnalytics) float64 {
 	if analytics == nil {
 		// Fallback to basic projection if analytics unavailable
 		return om.calculateBasicScore(player)
@@ -76,7 +75,7 @@ func (om *ObjectiveManager) CalculateObjectiveScore(player types.Player, lineup 
 }
 
 // calculateCeilingScore optimizes for maximum upside potential (GPP tournaments)
-func (om *ObjectiveManager) calculateCeilingScore(player types.Player, analytics *PlayerAnalytics) float64 {
+func (om *ObjectiveManager) calculateCeilingScore(player OptimizationPlayer, analytics *PlayerAnalytics) float64 {
 	// Heavily weight ceiling and ceiling probability
 	ceilingWeight := 0.6
 	projectionWeight := 0.25
@@ -105,7 +104,7 @@ func (om *ObjectiveManager) calculateCeilingScore(player types.Player, analytics
 }
 
 // calculateFloorScore optimizes for safety and consistency (cash games)
-func (om *ObjectiveManager) calculateFloorScore(player types.Player, analytics *PlayerAnalytics) float64 {
+func (om *ObjectiveManager) calculateFloorScore(player OptimizationPlayer, analytics *PlayerAnalytics) float64 {
 	// Heavily weight floor and consistency
 	floorWeight := 0.5
 	consistencyWeight := 0.3
@@ -135,7 +134,7 @@ func (om *ObjectiveManager) calculateFloorScore(player types.Player, analytics *
 }
 
 // calculateBalancedScore balances risk and reward
-func (om *ObjectiveManager) calculateBalancedScore(player types.Player, analytics *PlayerAnalytics) float64 {
+func (om *ObjectiveManager) calculateBalancedScore(player OptimizationPlayer, analytics *PlayerAnalytics) float64 {
 	// Balanced weighting across all factors
 	projectionWeight := 0.4
 	ceilingWeight := 0.2
@@ -162,7 +161,7 @@ func (om *ObjectiveManager) calculateBalancedScore(player types.Player, analytic
 }
 
 // calculateContrarianscore optimizes for low ownership
-func (om *ObjectiveManager) calculateContrarianscore(player types.Player, analytics *PlayerAnalytics) float64 {
+func (om *ObjectiveManager) calculateContrarianscore(player OptimizationPlayer, analytics *PlayerAnalytics) float64 {
 	baseScore := analytics.BaseProjection * 0.6
 
 	ownership := om.getPlayerOwnership(player)
@@ -193,7 +192,7 @@ func (om *ObjectiveManager) calculateContrarianscore(player types.Player, analyt
 }
 
 // calculateCorrelationScore optimizes for stacking and correlation
-func (om *ObjectiveManager) calculateCorrelationScore(player types.Player, lineup []types.Player, analytics *PlayerAnalytics) float64 {
+func (om *ObjectiveManager) calculateCorrelationScore(player OptimizationPlayer, lineup []OptimizationPlayer, analytics *PlayerAnalytics) float64 {
 	baseScore := analytics.BaseProjection * 0.5
 
 	// Calculate correlation bonus with existing lineup
@@ -219,7 +218,7 @@ func (om *ObjectiveManager) calculateCorrelationScore(player types.Player, lineu
 }
 
 // calculateValueScore optimizes for points per dollar
-func (om *ObjectiveManager) calculateValueScore(player types.Player, analytics *PlayerAnalytics) float64 {
+func (om *ObjectiveManager) calculateValueScore(player OptimizationPlayer, analytics *PlayerAnalytics) float64 {
 	// Heavy weight on value rating
 	valueScore := analytics.ValueRating * analytics.BaseProjection * 0.8
 
@@ -241,14 +240,14 @@ func (om *ObjectiveManager) calculateValueScore(player types.Player, analytics *
 }
 
 // calculateBasicScore provides fallback scoring when analytics unavailable
-func (om *ObjectiveManager) calculateBasicScore(player types.Player) float64 {
+func (om *ObjectiveManager) calculateBasicScore(player OptimizationPlayer) float64 {
 	return player.ProjectedPoints
 }
 
 // Helper functions
 
 // getPlayerOwnership returns player ownership percentage
-func (om *ObjectiveManager) getPlayerOwnership(player types.Player) float64 {
+func (om *ObjectiveManager) getPlayerOwnership(player OptimizationPlayer) float64 {
 	if om.platform == "fanduel" {
 		return player.OwnershipFD
 	}
@@ -256,7 +255,7 @@ func (om *ObjectiveManager) getPlayerOwnership(player types.Player) float64 {
 }
 
 // calculateLineupCorrelationBonus calculates correlation bonus with existing lineup
-func (om *ObjectiveManager) calculateLineupCorrelationBonus(player types.Player, lineup []types.Player) float64 {
+func (om *ObjectiveManager) calculateLineupCorrelationBonus(player OptimizationPlayer, lineup []OptimizationPlayer) float64 {
 	if om.correlations == nil {
 		return 0.0
 	}
@@ -273,7 +272,7 @@ func (om *ObjectiveManager) calculateLineupCorrelationBonus(player types.Player,
 }
 
 // calculateStackBonus calculates stacking bonus
-func (om *ObjectiveManager) calculateStackBonus(player types.Player, lineup []types.Player) float64 {
+func (om *ObjectiveManager) calculateStackBonus(player OptimizationPlayer, lineup []OptimizationPlayer) float64 {
 	teammateBonusCount := 0
 	opponentBonusCount := 0
 
@@ -305,7 +304,7 @@ func (om *ObjectiveManager) calculateStackBonus(player types.Player, lineup []ty
 }
 
 // getPlayerCorrelation gets correlation between two players
-func (om *ObjectiveManager) getPlayerCorrelation(player1, player2 types.Player) float64 {
+func (om *ObjectiveManager) getPlayerCorrelation(player1, player2 OptimizationPlayer) float64 {
 	// Placeholder correlation calculation
 	// In production, this would use the actual correlation matrix
 	

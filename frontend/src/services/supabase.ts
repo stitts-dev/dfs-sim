@@ -11,9 +11,9 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Create Supabase client (optional if environment variables are not set)
-let supabase: SupabaseClient | null = null
+let supabaseClient: SupabaseClient | null = null
 if (supabaseUrl && supabaseAnonKey) {
-  supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
       autoRefreshToken: true,
       persistSession: true,
@@ -22,16 +22,22 @@ if (supabaseUrl && supabaseAnonKey) {
   })
 }
 
+// Export the supabase client for use in other modules
+export { supabaseClient }
+
+// Export a non-null version for use when we know Supabase is configured
+export const supabase = supabaseClient as SupabaseClient
+
 /**
  * Send OTP to phone number using Supabase Auth
  */
 export const sendOTPWithSupabase = async (phoneNumber: string): Promise<SupabaseAuthResponse> => {
-  if (!supabase) {
+  if (!supabaseClient) {
     throw new Error('Supabase not configured')
   }
 
   try {
-    const { data, error } = await supabase.auth.signInWithOtp({
+    const { data, error } = await supabaseClient.auth.signInWithOtp({
       phone: phoneNumber
     })
 
@@ -97,12 +103,12 @@ export const verifyOTPWithSupabase = async (
   phoneNumber: string, 
   token: string
 ): Promise<SupabaseAuthResponse> => {
-  if (!supabase) {
+  if (!supabaseClient) {
     throw new Error('Supabase not configured')
   }
 
   try {
-    const { data, error } = await supabase.auth.verifyOtp({
+    const { data, error } = await supabaseClient.auth.verifyOtp({
       phone: phoneNumber,
       token,
       type: 'sms'
@@ -167,12 +173,12 @@ export const verifyOTPWithSupabase = async (
  * Sign out user
  */
 export const signOutWithSupabase = async (): Promise<{ error?: any }> => {
-  if (!supabase) {
+  if (!supabaseClient) {
     return { error: null }
   }
 
   try {
-    const { error } = await supabase.auth.signOut()
+    const { error } = await supabaseClient.auth.signOut()
     return { error }
   } catch (error) {
     return { error }
@@ -183,12 +189,12 @@ export const signOutWithSupabase = async (): Promise<{ error?: any }> => {
  * Get current session
  */
 export const getCurrentSession = async () => {
-  if (!supabase) {
+  if (!supabaseClient) {
     return { data: { session: null }, error: null }
   }
 
   try {
-    return await supabase.auth.getSession()
+    return await supabaseClient.auth.getSession()
   } catch (error) {
     return { 
       data: { session: null }, 
@@ -201,25 +207,25 @@ export const getCurrentSession = async () => {
  * Listen to auth state changes
  */
 export const onAuthStateChange = (callback: (event: string, session: any) => void) => {
-  if (!supabase) {
+  if (!supabaseClient) {
     return { data: { subscription: null } }
   }
 
-  return supabase.auth.onAuthStateChange(callback)
+  return supabaseClient.auth.onAuthStateChange(callback)
 }
 
 /**
  * Check if Supabase is available
  */
 export const isSupabaseAvailable = (): boolean => {
-  return supabase !== null
+  return supabaseClient !== null
 }
 
 /**
  * Get Supabase client instance
  */
 export const getSupabaseClient = (): SupabaseClient | null => {
-  return supabase
+  return supabaseClient
 }
 
 // Enhanced utility functions for phone number validation using libphonenumber-js

@@ -52,7 +52,7 @@ type Contest struct {
 	ExternalID           string                `gorm:"index" json:"external_id"`
 	DraftGroupID         string                `gorm:"index" json:"draft_group_id"`
 	LastSyncTime         *time.Time            `json:"last_sync_time,omitempty"`
-	PositionRequirements PositionRequirements  `gorm:"type:jsonb" json:"position_requirements"`
+	PositionRequirements PositionRequirements  `gorm:"column:roster_positions;type:jsonb" json:"roster_positions"`
 	
 	// Associations
 	Players []Player `gorm:"foreignKey:ContestID" json:"players,omitempty"`

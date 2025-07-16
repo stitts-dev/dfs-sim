@@ -21,8 +21,7 @@ type DataFetcherService struct {
 	logger            *logrus.Logger
 	cron              *cron.Cron
 	golfSyncService   *GolfTournamentSyncService
-	rapidAPIProvider  *providers.RapidAPIGolfClient
-	espnProvider      *providers.ESPNGolfClient
+	dataGolfProvider  *providers.DataGolfClient
 	circuitBreaker    *CircuitBreakerService
 	cache             *CacheService
 	ctx               context.Context
@@ -53,8 +52,7 @@ func NewDataFetcherService(
 	db *database.DB,
 	logger *logrus.Logger,
 	golfSyncService *GolfTournamentSyncService,
-	rapidAPIProvider *providers.RapidAPIGolfClient,
-	espnProvider *providers.ESPNGolfClient,
+	dataGolfProvider *providers.DataGolfClient,
 	circuitBreaker *CircuitBreakerService,
 	cache *CacheService,
 ) *DataFetcherService {
@@ -64,24 +62,15 @@ func NewDataFetcherService(
 	cronLogger := cron.VerbosePrintfLogger(logger)
 	c := cron.New(cron.WithLogger(cronLogger))
 
-	// Get golf sport ID once during initialization
+	// Get golf sport ID lazily to avoid prepared statement conflicts
 	var golfSportID uuid.UUID
-	var sport struct {
-		ID uuid.UUID `gorm:"column:id"`
-	}
-	err := db.Table("sports").Select("id").Where("name = ?", "Golf").First(&sport).Error
-	if err != nil {
-		logger.WithError(err).Fatal("Failed to get golf sport ID - ensure 'Golf' sport exists in database")
-	}
-	golfSportID = sport.ID
 
 	return &DataFetcherService{
 		db:                db,
 		logger:            logger,
 		cron:              c,
 		golfSyncService:   golfSyncService,
-		rapidAPIProvider:  rapidAPIProvider,
-		espnProvider:      espnProvider,
+		dataGolfProvider:  dataGolfProvider,
 		circuitBreaker:    circuitBreaker,
 		cache:             cache,
 		ctx:               ctx,
@@ -272,9 +261,15 @@ func (dfs *DataFetcherService) updateJobStatus(id, status, errorMsg string, dura
 func (dfs *DataFetcherService) syncTournamentData() {
 	logger := dfs.logger.WithField("component", "data_fetcher").WithField("job", "tournament_sync")
 	
+	// Check if DataGolf provider is available
+	if dfs.dataGolfProvider == nil {
+		logger.Error("DataGolf provider is not available, skipping tournament sync")
+		return
+	}
+
 	// Check if we should skip sync based on circuit breaker
-	if dfs.circuitBreaker.GetState("rapidapi") == gobreaker.StateOpen && dfs.circuitBreaker.GetState("espn") == gobreaker.StateOpen {
-		logger.Warn("All external providers are unavailable, skipping tournament sync")
+	if dfs.circuitBreaker.GetState("datagolf") == gobreaker.StateOpen {
+		logger.Warn("DataGolf provider is unavailable, skipping tournament sync")
 		return
 	}
 
@@ -287,46 +282,141 @@ func (dfs *DataFetcherService) syncTournamentData() {
 	logger.Info("Tournament data synchronized successfully")
 }
 
-// syncPlayerData synchronizes player data for active tournaments
+// syncPlayerData populates players for contests that don't have them yet
 func (dfs *DataFetcherService) syncPlayerData() {
 	logger := dfs.logger.WithField("component", "data_fetcher").WithField("job", "player_sync")
 	
+	// Check if DataGolf provider is available
+	if dfs.dataGolfProvider == nil {
+		logger.Error("DataGolf provider is not available, skipping player sync")
+		return
+	}
+
 	// Check if we should skip sync based on circuit breaker
-	if dfs.circuitBreaker.GetState("rapidapi") == gobreaker.StateOpen && dfs.circuitBreaker.GetState("espn") == gobreaker.StateOpen {
-		logger.Warn("All external providers are unavailable, skipping player sync")
+	if dfs.circuitBreaker.GetState("datagolf") == gobreaker.StateOpen {
+		logger.Warn("DataGolf provider is unavailable, skipping player sync")
 		return
 	}
 
-	// Get active tournaments
-	var activeTournaments []string
-	if err := dfs.db.Model(&types.Contest{}).
+	// Get active golf contests that might need player population
+	var activeContests []types.Contest
+	if err := dfs.db.
 		Joins("JOIN sports ON contests.sport_id = sports.id").
-		Where("sports.name = ? AND contests.is_active = ? AND contests.start_time <= ? AND contests.start_time >= ?", 
-			"Golf", true, time.Now().Add(24*time.Hour), time.Now().Add(-24*time.Hour)).
-		Pluck("contests.tournament_id", &activeTournaments).Error; err != nil {
-		logger.WithError(err).Error("Failed to get active tournaments")
+		Where("sports.name = ? AND contests.is_active = ? AND contests.start_time >= ?", 
+			"Golf", true, time.Now().Add(-24*time.Hour)).
+		Find(&activeContests).Error; err != nil {
+		logger.WithError(err).Error("Failed to get active contests")
 		return
 	}
 
-	if len(activeTournaments) == 0 {
-		logger.Debug("No active tournaments found, skipping player sync")
+	if len(activeContests) == 0 {
+		logger.Debug("No active contests found, skipping player sync")
 		return
 	}
 
-	// Sync players for each active tournament
-	provider := dfs.getAvailableProvider()
-	if provider == nil {
-		logger.Error("No available providers for player sync")
-		return
+	logger.WithField("active_contests", len(activeContests)).Info("Found active contests for player sync")
+
+	// Check each contest for missing players and populate them
+	populated := 0
+	failed := 0
+	
+	for _, contest := range activeContests {
+		contestLogger := logger.WithField("contest_id", contest.ID)
+		
+		// Check if contest already has players
+		var playerCount int64
+		if err := dfs.db.Model(&types.Player{}).Where("contest_id = ?", contest.ID).Count(&playerCount).Error; err != nil {
+			contestLogger.WithError(err).Error("Failed to count players for contest")
+			continue
+		}
+
+		if playerCount > 0 {
+			contestLogger.WithField("player_count", playerCount).Debug("Contest already has players, skipping")
+			continue
+		}
+
+		// Contest has no players, populate them
+		contestLogger.Info("Contest has no players, populating from tournament data")
+		
+		// Get players from DataGolf provider
+		players, err := dfs.dataGolfProvider.GetPlayers(types.SportGolf, time.Now().Format("2006-01-02"))
+		if err != nil {
+			contestLogger.WithError(err).Error("Failed to get players from provider")
+			failed++
+			continue
+		}
+
+		if len(players) == 0 {
+			contestLogger.Warn("No players found from provider")
+			continue
+		}
+
+		// Get golf sport ID
+		golfSportID, err := dfs.getGolfSportID()
+		if err != nil {
+			contestLogger.WithError(err).Error("Failed to get golf sport ID")
+			failed++
+			continue
+		}
+
+		// Create player records for this contest
+		playersCreated := 0
+		for _, player := range players {
+			// Convert string fields to pointers
+			var position, team, imageURL *string
+			if player.Position != "" {
+				position = &player.Position
+			}
+			if player.Team != "" {
+				team = &player.Team
+			}
+			if player.ImageURL != "" {
+				imageURL = &player.ImageURL
+			}
+
+			// Extract actual data from DataGolf API response
+			projectedPoints := dfs.extractProjectedPoints(player)
+			salaryDK := dfs.extractSalaryDK(player, contest.Platform)
+			salaryFD := dfs.extractSalaryFD(player, contest.Platform)
+			isActive := true
+
+			dbPlayer := types.Player{
+				ID:              uuid.New(),
+				SportID:         golfSportID,
+				ExternalID:      player.ExternalID,
+				Name:            player.Name,
+				Position:        position,
+				Team:            team,
+				ContestID:       &contest.ID,
+				ProjectedPoints: &projectedPoints,
+				SalaryDK:        &salaryDK,
+				SalaryFD:        &salaryFD,
+				IsActive:        &isActive,
+				GameTime:        &contest.StartTime,
+				ImageURL:        imageURL,
+			}
+
+			if err := dfs.db.Create(&dbPlayer).Error; err != nil {
+				contestLogger.WithError(err).WithField("player_name", player.Name).Error("Failed to create player")
+				continue
+			}
+
+			playersCreated++
+		}
+
+		if playersCreated > 0 {
+			contestLogger.WithField("players_created", playersCreated).Info("Successfully populated contest players")
+			populated++
+		} else {
+			contestLogger.Error("Failed to create any players for contest")
+			failed++
+		}
 	}
 
-	players, err := provider.GetPlayers(types.SportGolf, time.Now().Format("2006-01-02"))
-	if err != nil {
-		logger.WithError(err).Error("Failed to get players from provider")
-		return
-	}
-
-	logger.WithField("player_count", len(players)).Info("Player data synchronized successfully")
+	logger.WithFields(logrus.Fields{
+		"populated": populated,
+		"failed":    failed,
+	}).Info("Player population sync completed")
 }
 
 // createContests creates new contests based on available tournaments
@@ -342,14 +432,36 @@ func (dfs *DataFetcherService) createContests() {
 	logger.Info("Contest creation completed successfully")
 }
 
+// getGolfSportID gets the golf sport ID with caching
+func (dfs *DataFetcherService) getGolfSportID() (uuid.UUID, error) {
+	if dfs.golfSportID != uuid.Nil {
+		return dfs.golfSportID, nil
+	}
+	
+	var sport struct {
+		ID uuid.UUID `gorm:"column:id"`
+	}
+	err := dfs.db.Raw("SELECT id FROM sports WHERE name = ? LIMIT 1", "Golf").Scan(&sport).Error
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("failed to get golf sport ID - ensure 'Golf' sport exists in database: %w", err)
+	}
+	
+	if sport.ID == uuid.Nil {
+		return uuid.Nil, fmt.Errorf("golf sport not found in database - ensure 'Golf' sport exists")
+	}
+	
+	dfs.golfSportID = sport.ID
+	return dfs.golfSportID, nil
+}
+
 // warmCache warms frequently accessed data
 func (dfs *DataFetcherService) warmCache() {
 	logger := dfs.logger.WithField("component", "data_fetcher").WithField("job", "cache_warming")
 	
-	// Warm RapidAPI cache if available
-	if dfs.rapidAPIProvider != nil {
-		if err := dfs.rapidAPIProvider.WarmCache(); err != nil {
-			logger.WithError(err).Warn("Failed to warm RapidAPI cache")
+	// Warm DataGolf cache if available
+	if dfs.dataGolfProvider != nil {
+		if err := dfs.dataGolfProvider.WarmCache(); err != nil {
+			logger.WithError(err).Warn("Failed to warm DataGolf cache")
 		}
 	}
 
@@ -374,9 +486,15 @@ func (dfs *DataFetcherService) dailyCleanup() {
 	logger := dfs.logger.WithField("component", "data_fetcher").WithField("job", "daily_cleanup")
 	
 	// Clean up old completed tournaments
+	golfSportID, err := dfs.getGolfSportID()
+	if err != nil {
+		logger.WithError(err).Error("Failed to get golf sport ID for cleanup")
+		return
+	}
+	
 	cutoffDate := time.Now().AddDate(0, -1, 0) // 1 month ago
 	result := dfs.db.Model(&types.Contest{}).
-		Where("sport_id = ? AND start_time < ? AND is_active = ?", dfs.golfSportID, cutoffDate, false).
+		Where("sport_id = ? AND start_time < ? AND is_active = ?", golfSportID, cutoffDate, false).
 		Update("is_active", false)
 
 	if result.Error != nil {
@@ -392,14 +510,14 @@ func (dfs *DataFetcherService) dailyCleanup() {
 func (dfs *DataFetcherService) discoverNewTournaments() {
 	logger := dfs.logger.WithField("component", "data_fetcher").WithField("job", "tournament_discovery")
 	
-	// Get tournament schedule from provider
-	provider := dfs.getAvailableProvider()
-	if provider == nil {
-		logger.Error("No available providers for tournament discovery")
+	// Check if DataGolf provider is available
+	if dfs.dataGolfProvider == nil {
+		logger.Error("DataGolf provider is not available, skipping tournament discovery")
 		return
 	}
 
-	schedule, err := provider.GetTournamentSchedule()
+	// Get tournament schedule from DataGolf provider
+	schedule, err := dfs.dataGolfProvider.GetTournamentSchedule()
 	if err != nil {
 		logger.WithError(err).Error("Failed to get tournament schedule")
 		return
@@ -414,17 +532,14 @@ func (dfs *DataFetcherService) discoverNewTournaments() {
 	logger.WithField("tournaments_found", len(schedule)).Info("Tournament discovery completed")
 }
 
-// getAvailableProvider returns the best available provider
+// getAvailableProvider returns the DataGolf provider if available
 func (dfs *DataFetcherService) getAvailableProvider() interface {
 	GetCurrentTournament() (*providers.GolfTournamentData, error)
 	GetTournamentSchedule() ([]providers.GolfTournamentData, error)
 	GetPlayers(sport types.Sport, date string) ([]types.PlayerData, error)
 } {
-	if dfs.rapidAPIProvider != nil && dfs.circuitBreaker.GetState("rapidapi") != gobreaker.StateOpen {
-		return dfs.rapidAPIProvider
-	}
-	if dfs.espnProvider != nil && dfs.circuitBreaker.GetState("espn") != gobreaker.StateOpen {
-		return dfs.espnProvider
+	if dfs.dataGolfProvider != nil && dfs.circuitBreaker.GetState("datagolf") != gobreaker.StateOpen {
+		return dfs.dataGolfProvider
 	}
 	return nil
 }
@@ -550,4 +665,97 @@ func (dfs *DataFetcherService) Stop() error {
 
 	dfs.logger.WithField("component", "data_fetcher").Info("DataFetcherService stopped")
 	return nil
+}
+
+// extractProjectedPoints extracts projected points from player stats
+func (dfs *DataFetcherService) extractProjectedPoints(player types.PlayerData) float64 {
+	if player.Stats == nil {
+		return 0.0
+	}
+
+	// Convert stats to map for easier access
+	statsMap, ok := player.Stats.(map[string]interface{})
+	if !ok {
+		return 0.0
+	}
+
+	// Try to get fantasy_points from DataGolf
+	if fantasyPoints, exists := statsMap["fantasy_points"]; exists {
+		if fp, ok := fantasyPoints.(float64); ok {
+			return fp
+		}
+	}
+
+	// Fallback: calculate projected points from probabilities
+	winProb := dfs.getFloatFromStats(statsMap, "win_probability")
+	top5Prob := dfs.getFloatFromStats(statsMap, "top5_probability")
+	top10Prob := dfs.getFloatFromStats(statsMap, "top10_probability")
+	makeCutProb := dfs.getFloatFromStats(statsMap, "make_cut_probability")
+
+	// Basic projection calculation based on probabilities
+	projectedPoints := (winProb * 30.0) + (top5Prob * 20.0) + (top10Prob * 15.0) + (makeCutProb * 10.0)
+	
+	if projectedPoints == 0.0 {
+		return 45.0 // Default reasonable projection for golfers
+	}
+
+	return projectedPoints
+}
+
+// extractSalaryDK extracts DraftKings salary from player stats
+func (dfs *DataFetcherService) extractSalaryDK(player types.PlayerData, platform string) int {
+	if player.Stats == nil {
+		return 7000 // Default DK salary
+	}
+
+	statsMap, ok := player.Stats.(map[string]interface{})
+	if !ok {
+		return 7000
+	}
+
+	if dkSalary, exists := statsMap["dk_salary"]; exists {
+		if salary, ok := dkSalary.(float64); ok {
+			return int(salary)
+		}
+	}
+
+	// Default salary based on platform
+	if platform == "draftkings" {
+		return 7000
+	}
+	return 7000
+}
+
+// extractSalaryFD extracts FanDuel salary from player stats
+func (dfs *DataFetcherService) extractSalaryFD(player types.PlayerData, platform string) int {
+	if player.Stats == nil {
+		return 9000 // Default FD salary
+	}
+
+	statsMap, ok := player.Stats.(map[string]interface{})
+	if !ok {
+		return 9000
+	}
+
+	if fdSalary, exists := statsMap["fd_salary"]; exists {
+		if salary, ok := fdSalary.(float64); ok {
+			return int(salary)
+		}
+	}
+
+	// Default salary based on platform
+	if platform == "fanduel" {
+		return 9000
+	}
+	return 9000
+}
+
+// getFloatFromStats helper to safely extract float values from stats
+func (dfs *DataFetcherService) getFloatFromStats(stats map[string]interface{}, key string) float64 {
+	if val, exists := stats[key]; exists {
+		if floatVal, ok := val.(float64); ok {
+			return floatVal
+		}
+	}
+	return 0.0
 }

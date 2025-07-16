@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -51,15 +52,110 @@ func (h *SimpleUserHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, user)
+	// Return user with computed name field for API compatibility
+	response := gin.H{
+		"id":         user.ID,
+		"first_name": user.FirstName,
+		"last_name":  user.LastName,
+		"name":       user.GetName(), // Computed name field
+		"subscription_tier": user.SubscriptionTier,
+		"subscription_status": user.SubscriptionStatus,
+		"is_active":  user.IsActive,
+		"created_at": user.CreatedAt,
+		"updated_at": user.UpdatedAt,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // UpdateProfile updates the current user's profile
 func (h *SimpleUserHandler) UpdateProfile(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": "User profile update not yet implemented",
-		"message": "This endpoint will be implemented in the next iteration",
-	})
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found"})
+		return
+	}
+
+	// Parse UUID from context
+	userUUID, err := uuid.Parse(userID.(string))
+	if err != nil {
+		h.logger.WithError(err).Error("Invalid user ID format")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID format"})
+		return
+	}
+
+	// Get current user
+	user, err := models.GetUserByID(h.db, userUUID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get user")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user"})
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Name      string `json:"name"`
+		FirstName string `json:"first_name"`
+		LastName  string `json:"last_name"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Handle name field by splitting into first and last name
+	if req.Name != "" {
+		// Split the name into first and last name
+		names := strings.Fields(req.Name)
+		if len(names) >= 1 {
+			req.FirstName = names[0]
+		}
+		if len(names) >= 2 {
+			req.LastName = strings.Join(names[1:], " ")
+		}
+	}
+
+	// Update user fields
+	updates := make(map[string]interface{})
+	if req.FirstName != "" {
+		updates["first_name"] = req.FirstName
+	}
+	if req.LastName != "" {
+		updates["last_name"] = req.LastName
+	}
+
+	// Apply updates if any
+	if len(updates) > 0 {
+		if err := h.db.Model(&user).Updates(updates).Error; err != nil {
+			h.logger.WithError(err).Error("Failed to update user profile")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user profile"})
+			return
+		}
+	}
+
+	// Fetch updated user
+	updatedUser, err := models.GetUserByID(h.db, userUUID)
+	if err != nil {
+		h.logger.WithError(err).Error("Failed to get updated user")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get updated user"})
+		return
+	}
+
+	// Return user with computed name field for API compatibility
+	response := gin.H{
+		"id":         updatedUser.ID,
+		"first_name": updatedUser.FirstName,
+		"last_name":  updatedUser.LastName,
+		"name":       updatedUser.GetName(), // Computed name field
+		"subscription_tier": updatedUser.SubscriptionTier,
+		"subscription_status": updatedUser.SubscriptionStatus,
+		"is_active":  updatedUser.IsActive,
+		"created_at": updatedUser.CreatedAt,
+		"updated_at": updatedUser.UpdatedAt,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // GetPreferences gets user preferences

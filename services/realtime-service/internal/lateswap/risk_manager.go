@@ -9,8 +9,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
-
-	"github.com/stitts-dev/dfs-sim/services/realtime-service/internal/models"
 )
 
 // RiskManager handles risk assessment and management for late swap recommendations
@@ -180,9 +178,6 @@ func NewRiskManager(db *gorm.DB, logger *logrus.Logger) *RiskManager {
 // CalculateSwapRisk calculates the risk score for a potential swap
 func (rm *RiskManager) CalculateSwapRisk(userID int, originalPlayer, candidatePlayer *Player, lineup *Lineup) float64 {
 	ctx := context.Background()
-	
-	// Get user risk profile
-	profile := rm.getUserRiskProfile(userID)
 	
 	// Perform comprehensive risk assessment
 	assessment := rm.AssessSwapRisk(ctx, userID, originalPlayer, candidatePlayer, lineup)

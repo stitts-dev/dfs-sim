@@ -18,33 +18,51 @@ type GolfTournamentSyncService struct {
 	golfProvider interface {
 		GetCurrentTournament() (*providers.GolfTournamentData, error)
 		GetTournamentSchedule() ([]providers.GolfTournamentData, error)
+		GetPlayers(sport types.Sport, date string) ([]types.PlayerData, error)
 	}
-	logger   *logrus.Logger
-	golfSportID uuid.UUID
+	logger           *logrus.Logger
+	golfSportID      uuid.UUID
 }
 
 // NewGolfTournamentSyncService creates a new golf tournament sync service
-func NewGolfTournamentSyncService(db *database.DB, golfProvider interface {
-	GetCurrentTournament() (*providers.GolfTournamentData, error)
-	GetTournamentSchedule() ([]providers.GolfTournamentData, error)
-}, logger *logrus.Logger) *GolfTournamentSyncService {
-	// Get golf sport ID once during initialization
-	var golfSportID uuid.UUID
-	var sport struct {
-		ID uuid.UUID `gorm:"column:id"`
-	}
-	err := db.Table("sports").Select("id").Where("name = ?", "Golf").First(&sport).Error
-	if err != nil {
-		logger.WithError(err).Fatal("Failed to get golf sport ID - ensure 'Golf' sport exists in database")
-	}
-	golfSportID = sport.ID
-
+func NewGolfTournamentSyncService(
+	db *database.DB, 
+	golfProvider interface {
+		GetCurrentTournament() (*providers.GolfTournamentData, error)
+		GetTournamentSchedule() ([]providers.GolfTournamentData, error)
+		GetPlayers(sport types.Sport, date string) ([]types.PlayerData, error)
+	}, 
+	logger *logrus.Logger,
+) *GolfTournamentSyncService {
 	return &GolfTournamentSyncService{
 		db:           db,
 		golfProvider: golfProvider,
 		logger:       logger,
-		golfSportID:  golfSportID,
 	}
+}
+
+// getGolfSportID gets the golf sport ID with retry logic
+func (s *GolfTournamentSyncService) getGolfSportID() (uuid.UUID, error) {
+	if s.golfSportID != uuid.Nil {
+		return s.golfSportID, nil
+	}
+
+	var err error
+	for i := 0; i < 3; i++ {
+		var sportIDStr string
+		err = s.db.Raw("SELECT id FROM sports WHERE name = 'Golf' LIMIT 1").Scan(&sportIDStr).Error
+		if err == nil {
+			s.golfSportID, err = uuid.Parse(sportIDStr)
+		}
+		if err == nil {
+			return s.golfSportID, nil
+		}
+		if i < 2 {
+			s.logger.WithError(err).Warnf("Failed to get golf sport ID (attempt %d/3), retrying...", i+1)
+			time.Sleep(time.Duration(i+1) * time.Second)
+		}
+	}
+	return uuid.Nil, fmt.Errorf("failed to get golf sport ID after 3 attempts: %w", err)
 }
 
 // SyncCurrentTournament syncs the current golf tournament to contests
@@ -126,6 +144,12 @@ func (s *GolfTournamentSyncService) createContestFromTournament(tournament *prov
 		}
 	}
 
+	// Get golf sport ID
+	golfSportID, err := s.getGolfSportID()
+	if err != nil {
+		return fmt.Errorf("failed to get golf sport ID: %w", err)
+	}
+
 	// Create contests for both DraftKings and FanDuel
 	platforms := []string{"draftkings", "fanduel"}
 	contestTypes := []string{"gpp", "cash"}
@@ -138,7 +162,7 @@ func (s *GolfTournamentSyncService) createContestFromTournament(tournament *prov
 			// Check if contest already exists for this tournament/platform/type combination
 			var existingContest types.Contest
 			err = s.db.Where("sport_id = ? AND tournament_id = ? AND platform = ? AND contest_type = ?", 
-				s.golfSportID, tournamentIDStr, platform, contestType).First(&existingContest).Error
+				golfSportID, tournamentIDStr, platform, contestType).First(&existingContest).Error
 			
 			if err == nil {
 				// Contest exists, update it
@@ -159,7 +183,7 @@ func (s *GolfTournamentSyncService) createContestFromTournament(tournament *prov
 
 			// Create new contest
 			contest := types.Contest{
-				SportID:      s.golfSportID,
+				SportID:      golfSportID,
 				Platform:     platform,
 				ContestType:  contestType,
 				Name:         s.generateContestName(tournament.Name, platform, contestType),
@@ -187,6 +211,11 @@ func (s *GolfTournamentSyncService) createContestFromTournament(tournament *prov
 			} else {
 				s.logger.Infof("Created %s %s contest for %s", platform, contestType, tournament.Name)
 				contestsCreated++
+				
+				// Import contest players immediately after contest creation
+				if err := s.importContestPlayers(contest, golfSportID, &tournamentID); err != nil {
+					s.logger.WithError(err).Errorf("Failed to import players for contest %s", contest.ID)
+				}
 			}
 		}
 	}
@@ -259,9 +288,15 @@ func (s *GolfTournamentSyncService) SyncAllActiveTournaments() error {
 	}
 
 	// Clean up old completed tournaments
+	golfSportID, err := s.getGolfSportID()
+	if err != nil {
+		s.logger.WithError(err).Error("Failed to get golf sport ID for cleanup")
+		return nil
+	}
+	
 	cutoffDate := time.Now().AddDate(0, -1, 0) // 1 month ago
 	result := s.db.Model(&types.Contest{}).
-		Where("sport_id = ? AND start_time < ? AND is_active = ?", s.golfSportID, cutoffDate, false).
+		Where("sport_id = ? AND start_time < ? AND is_active = ?", golfSportID, cutoffDate, false).
 		Update("is_active", false)
 
 	if result.Error != nil {
@@ -272,3 +307,169 @@ func (s *GolfTournamentSyncService) SyncAllActiveTournaments() error {
 
 	return nil
 }
+
+// importContestPlayers imports players for a newly created contest
+func (s *GolfTournamentSyncService) importContestPlayers(contest types.Contest, sportID uuid.UUID, tournamentID *uuid.UUID) error {
+	logger := s.logger.WithFields(logrus.Fields{
+		"contest_id":    contest.ID,
+		"platform":      contest.Platform,
+		"tournament_id": tournamentID,
+	})
+
+	logger.Info("Starting contest player import")
+
+	// Get players from DataGolf provider (includes DK/FD salaries and projections)
+	playerData, err := s.golfProvider.GetPlayers(types.SportGolf, time.Now().Format("2006-01-02"))
+	if err != nil {
+		return fmt.Errorf("failed to get players from golf provider: %w", err)
+	}
+
+	if len(playerData) == 0 {
+		logger.Warn("No players found from golf provider")
+		return nil
+	}
+
+	// Create player records for this contest
+	playersCreated := 0
+	for _, player := range playerData {
+		// Convert string fields to pointers
+		var position, team, imageURL *string
+		if player.Position != "" {
+			position = &player.Position
+		}
+		if player.Team != "" {
+			team = &player.Team
+		}
+		if player.ImageURL != "" {
+			imageURL = &player.ImageURL
+		}
+
+		// Extract actual data from DataGolf API response
+		projectedPoints := s.extractProjectedPoints(player)
+		salaryDK := s.extractSalaryDK(player, contest.Platform)
+		salaryFD := s.extractSalaryFD(player, contest.Platform)
+		isActive := true
+
+		// Create player record with actual DataGolf data
+		dbPlayer := types.Player{
+			ID:              uuid.New(),
+			SportID:         sportID,
+			ExternalID:      player.ExternalID,
+			Name:            player.Name,
+			Position:        position,
+			Team:            team,
+			ContestID:       &contest.ID,
+			ProjectedPoints: &projectedPoints,
+			SalaryDK:        &salaryDK,
+			SalaryFD:        &salaryFD,
+			IsActive:        &isActive,
+			GameTime:        &contest.StartTime,
+			ImageURL:        imageURL,
+		}
+
+		if err := s.db.Create(&dbPlayer).Error; err != nil {
+			logger.WithError(err).WithField("player_name", player.Name).Error("Failed to create player")
+			continue
+		}
+
+		playersCreated++
+	}
+
+	logger.WithField("players_created", playersCreated).Info("Contest players imported successfully")
+
+	return nil
+}
+
+// extractProjectedPoints extracts projected points from player stats
+func (s *GolfTournamentSyncService) extractProjectedPoints(player types.PlayerData) float64 {
+	if player.Stats == nil {
+		return 0.0
+	}
+
+	// Convert stats to map for easier access
+	statsMap, ok := player.Stats.(map[string]interface{})
+	if !ok {
+		return 0.0
+	}
+
+	// Try to get fantasy_points from DataGolf
+	if fantasyPoints, exists := statsMap["fantasy_points"]; exists {
+		if fp, ok := fantasyPoints.(float64); ok {
+			return fp
+		}
+	}
+
+	// Fallback: calculate projected points from probabilities
+	winProb := s.getFloatFromStats(statsMap, "win_probability")
+	top5Prob := s.getFloatFromStats(statsMap, "top5_probability")
+	top10Prob := s.getFloatFromStats(statsMap, "top10_probability")
+	makeCutProb := s.getFloatFromStats(statsMap, "make_cut_probability")
+
+	// Basic projection calculation based on probabilities
+	projectedPoints := (winProb * 30.0) + (top5Prob * 20.0) + (top10Prob * 15.0) + (makeCutProb * 10.0)
+	
+	if projectedPoints == 0.0 {
+		return 45.0 // Default reasonable projection for golfers
+	}
+
+	return projectedPoints
+}
+
+// extractSalaryDK extracts DraftKings salary from player stats
+func (s *GolfTournamentSyncService) extractSalaryDK(player types.PlayerData, platform string) int {
+	if player.Stats == nil {
+		return 7000 // Default DK salary
+	}
+
+	statsMap, ok := player.Stats.(map[string]interface{})
+	if !ok {
+		return 7000
+	}
+
+	if dkSalary, exists := statsMap["dk_salary"]; exists {
+		if salary, ok := dkSalary.(float64); ok {
+			return int(salary)
+		}
+	}
+
+	// Default salary based on platform
+	if platform == "draftkings" {
+		return 7000
+	}
+	return 7000
+}
+
+// extractSalaryFD extracts FanDuel salary from player stats
+func (s *GolfTournamentSyncService) extractSalaryFD(player types.PlayerData, platform string) int {
+	if player.Stats == nil {
+		return 9000 // Default FD salary
+	}
+
+	statsMap, ok := player.Stats.(map[string]interface{})
+	if !ok {
+		return 9000
+	}
+
+	if fdSalary, exists := statsMap["fd_salary"]; exists {
+		if salary, ok := fdSalary.(float64); ok {
+			return int(salary)
+		}
+	}
+
+	// Default salary based on platform
+	if platform == "fanduel" {
+		return 9000
+	}
+	return 9000
+}
+
+// getFloatFromStats helper to safely extract float values from stats
+func (s *GolfTournamentSyncService) getFloatFromStats(stats map[string]interface{}, key string) float64 {
+	if val, exists := stats[key]; exists {
+		if floatVal, ok := val.(float64); ok {
+			return floatVal
+		}
+	}
+	return 0.0
+}
+

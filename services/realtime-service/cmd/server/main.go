@@ -14,6 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/stitts-dev/dfs-sim/services/realtime-service/internal/alerts"
 	"github.com/stitts-dev/dfs-sim/services/realtime-service/internal/api/handlers"
@@ -72,7 +73,7 @@ func main() {
 	alertEngine := alerts.NewAlertEngine(db, redisClient, logger)
 
 	// Initialize late swap engine
-	lateSwapEngine := lateswap.NewLateSwapEngine(db, redisClient, logger)
+	lateSwapEngine := lateswap.NewRecommendationEngine(db, redisClient, logger)
 
 	// Initialize API handlers
 	apiHandlers := handlers.NewHandlers(
@@ -284,7 +285,7 @@ type GormLogger struct {
 	logger *logrus.Logger
 }
 
-func (l *GormLogger) LogMode(level gorm.LogLevel) gorm.Interface {
+func (l *GormLogger) LogMode(level logger.LogLevel) logger.Interface {
 	return l
 }
 

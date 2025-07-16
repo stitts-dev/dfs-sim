@@ -150,14 +150,14 @@ func (cs *ContestSimulator) generateSingleLineup(pool []weightedPlayer, allPlaye
 				lineupPlayer := types.LineupPlayer{
 					ID:              player.ID,
 					Name:            player.Name,
-					Team:            player.Team,
-					Position:        player.Position,
-					Salary:          player.SalaryDK,
-					ProjectedPoints: player.ProjectedPoints,
+					Team:            getStringValueSim(player.Team),
+					Position:        getStringValueSim(player.Position),
+					Salary:          getIntValueSim(player.SalaryDK),
+					ProjectedPoints: getFloatValueSim(player.ProjectedPoints),
 				}
 				lineup.Players = append(lineup.Players, lineupPlayer)
-				lineup.TotalSalary += player.SalaryDK
-				lineup.ProjectedPoints += player.ProjectedPoints
+				lineup.TotalSalary += getIntValueSim(player.SalaryDK)
+				lineup.ProjectedPoints += getFloatValueSim(player.ProjectedPoints)
 				usedPlayers[player.ID] = true
 				positionsFilled[position]++
 			}
@@ -178,8 +178,8 @@ func (cs *ContestSimulator) selectPlayer(pool []weightedPlayer, position string,
 	totalWeight := 0.0
 
 	for _, wp := range pool {
-		if wp.player.Position == position &&
-			wp.player.SalaryDK <= remainingSalary &&
+		if getStringValueSim(wp.player.Position) == position &&
+			getIntValueSim(wp.player.SalaryDK) <= remainingSalary &&
 			!used[wp.player.ID] {
 			eligible = append(eligible, wp)
 			totalWeight += wp.weight
@@ -274,15 +274,16 @@ func (om *OwnershipModel) GenerateOwnership(players []types.Player, rng *rand.Ra
 	// Group by position
 	byPosition := make(map[string][]types.Player)
 	for _, p := range players {
-		byPosition[p.Position] = append(byPosition[p.Position], p)
+		position := getStringValueSim(p.Position)
+		byPosition[position] = append(byPosition[position], p)
 	}
 
 	// Generate ownership for each position
 	for _, posPlayers := range byPosition {
 		// Sort by value (projected points per dollar)
 		sort.Slice(posPlayers, func(i, j int) bool {
-			valueI := posPlayers[i].ProjectedPoints / float64(posPlayers[i].SalaryDK)
-			valueJ := posPlayers[j].ProjectedPoints / float64(posPlayers[j].SalaryDK)
+			valueI := getFloatValueSim(posPlayers[i].ProjectedPoints) / float64(getIntValueSim(posPlayers[i].SalaryDK))
+			valueJ := getFloatValueSim(posPlayers[j].ProjectedPoints) / float64(getIntValueSim(posPlayers[j].SalaryDK))
 			return valueI > valueJ
 		})
 
@@ -295,8 +296,8 @@ func (om *OwnershipModel) GenerateOwnership(players []types.Player, rng *rand.Ra
 			ownership[player.ID] = math.Max(0.01, math.Min(0.50, baseOwnership+noise))
 
 			// Boost if already has ownership data
-			if player.OwnershipDK > 0 {
-				ownership[player.ID] = player.OwnershipDK / 100.0
+			if getFloatValueSim(player.OwnershipDK) > 0 {
+				ownership[player.ID] = getFloatValueSim(player.OwnershipDK) / 100.0
 			}
 		}
 	}
@@ -358,4 +359,26 @@ type ContestResult struct {
 	LineupScores   []LineupScore
 	PlayerOutcomes map[uuid.UUID]float64
 	UserResults    []UserResult
+}
+
+// Helper functions to safely extract values from pointers
+func getStringValueSim(ptr *string) string {
+	if ptr != nil {
+		return *ptr
+	}
+	return ""
+}
+
+func getIntValueSim(ptr *int) int {
+	if ptr != nil {
+		return *ptr
+	}
+	return 0
+}
+
+func getFloatValueSim(ptr *float64) float64 {
+	if ptr != nil {
+		return *ptr
+	}
+	return 0.0
 }

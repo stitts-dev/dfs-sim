@@ -117,7 +117,7 @@ func (h *SimulationHandler) RunSimulation(c *gin.Context) {
 
 	// Create a dummy contest for simulation (should come from request in real implementation)
 	contest := types.Contest{
-		Type: req.ContestType,
+		ContestType: req.ContestType,
 	}
 
 	// Initialize simulator

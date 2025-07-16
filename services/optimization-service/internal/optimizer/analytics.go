@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stitts-dev/dfs-sim/shared/types"
 	"github.com/sirupsen/logrus"
 )
@@ -13,7 +14,7 @@ import (
 
 // PlayerAnalytics represents enhanced analytics for a player
 type PlayerAnalytics struct {
-	PlayerID            uint    `json:"player_id"`
+	PlayerID            uuid.UUID `json:"player_id"`
 	BaseProjection      float64 `json:"base_projection"`
 	Ceiling             float64 `json:"ceiling"`             // 85th percentile performance
 	Floor               float64 `json:"floor"`               // 15th percentile performance
@@ -53,15 +54,22 @@ func NewAnalyticsEngine() *AnalyticsEngine {
 // CalculatePlayerAnalytics computes comprehensive analytics for a player
 func (a *AnalyticsEngine) CalculatePlayerAnalytics(player types.Player, historicalData []PerformanceData) (*PlayerAnalytics, error) {
 	// Input validation first (existing pattern in optimizer)
-	if player.ProjectedPoints <= 0 {
+	projectedPoints := 0.0
+	if player.ProjectedPoints != nil {
+		projectedPoints = *player.ProjectedPoints
+	}
+	if projectedPoints <= 0 {
 		a.logger.WithField("player_id", player.ID).Warn("Player has invalid projected points")
-		return nil, fmt.Errorf("player %s has invalid projected points: %f", player.Name, player.ProjectedPoints)
+		return nil, fmt.Errorf("player %s has invalid projected points: %f", player.Name, projectedPoints)
 	}
 	
 	// Use platform-specific salary based on existing pattern
-	salary := player.SalaryDK
-	if salary <= 0 {
-		salary = player.SalaryFD
+	salary := 0
+	if player.SalaryDK != nil {
+		salary = *player.SalaryDK
+	}
+	if salary <= 0 && player.SalaryFD != nil {
+		salary = *player.SalaryFD
 	}
 	if salary <= 0 {
 		a.logger.WithField("player_id", player.ID).Warn("Player has invalid salary")
@@ -69,30 +77,30 @@ func (a *AnalyticsEngine) CalculatePlayerAnalytics(player types.Player, historic
 	}
 
 	analytics := &PlayerAnalytics{
-		PlayerID:       uint(player.ID.ID()), // Convert UUID to uint for compatibility
-		BaseProjection: player.ProjectedPoints,
+		PlayerID:       player.ID,
+		BaseProjection: projectedPoints,
 	}
 
 	// If we have floor/ceiling from data source, use them as base
-	if player.FloorPoints > 0 && player.CeilingPoints > 0 {
-		analytics.Floor = player.FloorPoints
-		analytics.Ceiling = player.CeilingPoints
+	if player.FloorPoints != nil && *player.FloorPoints > 0 && player.CeilingPoints != nil && *player.CeilingPoints > 0 {
+		analytics.Floor = *player.FloorPoints
+		analytics.Ceiling = *player.CeilingPoints
 	} else {
 		// Calculate from historical data or use defaults
-		analytics.Floor, analytics.Ceiling = a.calculateFloorCeiling(player.ProjectedPoints, historicalData)
+		analytics.Floor, analytics.Ceiling = a.calculateFloorCeiling(projectedPoints, historicalData)
 	}
 
 	// Calculate volatility using coefficient of variation
-	analytics.Volatility = a.calculateVolatility(player.ProjectedPoints, historicalData)
+	analytics.Volatility = a.calculateVolatility(projectedPoints, historicalData)
 	
 	// Value rating: points per thousand dollars (industry standard)
-	analytics.ValueRating = (player.ProjectedPoints / float64(salary)) * 1000
+	analytics.ValueRating = (projectedPoints / float64(salary)) * 1000
 
 	// Ownership projection (use existing data or estimate)
-	if player.OwnershipDK > 0 {
-		analytics.OwnershipProjection = player.OwnershipDK
-	} else if player.OwnershipFD > 0 {
-		analytics.OwnershipProjection = player.OwnershipFD
+	if player.OwnershipDK != nil && *player.OwnershipDK > 0 {
+		analytics.OwnershipProjection = *player.OwnershipDK
+	} else if player.OwnershipFD != nil && *player.OwnershipFD > 0 {
+		analytics.OwnershipProjection = *player.OwnershipFD
 	} else {
 		analytics.OwnershipProjection = a.estimateOwnership(analytics.ValueRating)
 	}
@@ -124,15 +132,15 @@ func (a *AnalyticsEngine) CalculatePlayerAnalytics(player types.Player, historic
 }
 
 // CalculateBulkAnalytics processes analytics for multiple players efficiently
-func (a *AnalyticsEngine) CalculateBulkAnalytics(players []types.Player, historicalDataMap map[uint][]PerformanceData) (map[uint]*PlayerAnalytics, error) {
-	results := make(map[uint]*PlayerAnalytics)
+func (a *AnalyticsEngine) CalculateBulkAnalytics(players []types.Player, historicalDataMap map[uuid.UUID][]PerformanceData) (map[uuid.UUID]*PlayerAnalytics, error) {
+	results := make(map[uuid.UUID]*PlayerAnalytics)
 	errors := make([]string, 0)
 
 	start := time.Now()
 	a.logger.WithField("player_count", len(players)).Info("Starting bulk analytics calculation")
 
 	for _, player := range players {
-		playerID := uint(player.ID.ID())
+		playerID := player.ID
 		historicalData := historicalDataMap[playerID]
 		
 		analytics, err := a.CalculatePlayerAnalytics(player, historicalData)
@@ -393,11 +401,11 @@ func (a *AnalyticsEngine) calculateCashGameScore(analytics *PlayerAnalytics) flo
 }
 
 // EnhancePlayersWithAnalytics adds analytics to existing player data
-func (a *AnalyticsEngine) EnhancePlayersWithAnalytics(players []types.Player, analytics map[uint]*PlayerAnalytics) []EnhancedPlayer {
+func (a *AnalyticsEngine) EnhancePlayersWithAnalytics(players []types.Player, analytics map[uuid.UUID]*PlayerAnalytics) []EnhancedPlayer {
 	enhanced := make([]EnhancedPlayer, 0, len(players))
 	
 	for _, player := range players {
-		playerID := uint(player.ID.ID())
+		playerID := player.ID
 		
 		enhancedPlayer := EnhancedPlayer{
 			Player:    player,
@@ -420,7 +428,10 @@ type EnhancedPlayer struct {
 func (a *AnalyticsEngine) GetObjectiveScore(player EnhancedPlayer, objective OptimizationObjective) float64 {
 	if player.Analytics == nil {
 		// Fallback to base projection if no analytics
-		return player.Player.ProjectedPoints
+		if player.Player.ProjectedPoints != nil {
+			return *player.Player.ProjectedPoints
+		}
+		return 0.0
 	}
 	
 	switch objective {

@@ -1,0 +1,203 @@
+# DataGolf Integration Configuration
+# Professional golf analytics and optimization settings
+
+datagolf:
+  # API Configuration
+  api:
+    base_url: "https://feeds.datagolf.com"
+    timeout: 30s
+    rate_limit:
+      requests_per_minute: 60  # DataGolf API limits
+      burst: 10
+    retry:
+      max_attempts: 3
+      backoff_factor: 2
+      max_delay: 30s
+  
+  # Data Sources Configuration
+  data_sources:
+    # Core data feeds (required)
+    player_skills: true
+    course_analytics: true
+    weather_data: true
+    tournament_predictions: true
+    
+    # Advanced analytics (premium features)
+    strokes_gained_data: true
+    course_fit_modeling: true
+    real_time_data: true
+    historical_performance: true
+    
+    # Machine learning features
+    predictive_models: true
+    correlation_analysis: true
+    ownership_prediction: false  # Optional feature
+  
+  # Optimization Algorithm Configuration
+  optimization:
+    # Strokes Gained Weighting
+    sg_weights:
+      default_strategy: "balanced"
+      strategies:
+        aggressive:
+          off_the_tee: 1.3
+          approach: 1.2
+          around_the_green: 0.9
+          putting: 0.8
+        balanced:
+          off_the_tee: 1.1
+          approach: 1.1
+          around_the_green: 1.0
+          putting: 0.9
+        conservative:
+          off_the_tee: 1.0
+          approach: 1.2
+          around_the_green: 1.1
+          putting: 1.0
+    
+    # Course Fit Modeling
+    course_fit:
+      enabled: true
+      confidence_threshold: 0.7
+      historical_weight: 0.6
+      current_form_weight: 0.4
+      weather_adjustment: true
+    
+    # Correlation Engine
+    correlation:
+      enabled: true
+      update_frequency: "5m"
+      correlation_types:
+        - "tee_time"
+        - "weather"
+        - "skill_based"
+        - "tournament_state"
+      confidence_threshold: 0.75
+    
+    # Monte Carlo Simulation
+    simulation:
+      enhanced_distributions: true
+      volatility_modeling: true
+      scenario_analysis: true
+      iterations:
+        quick: 10000
+        standard: 50000
+        thorough: 100000
+  
+  # Real-time Features
+  real_time:
+    enabled: true
+    update_intervals:
+      cut_line_prediction: "2m"
+      player_performance: "1m"
+      weather_conditions: "5m"
+      correlation_updates: "3m"
+    
+    # Live Optimization
+    live_optimization:
+      enabled: true
+      swap_recommendations: true
+      risk_adjustments: true
+      alert_notifications: true
+      confidence_tracking: true
+  
+  # AI Integration
+  ai_integration:
+    enabled: true
+    prompt_enhancement: true
+    insight_generation: true
+    strategy_recommendations: true
+    
+    # AI Model Configuration
+    models:
+      primary: "claude-3-haiku"
+      fallback: "claude-3-sonnet"
+      context_window: 100000
+      temperature: 0.3
+  
+  # Caching Strategy
+  cache:
+    enabled: true
+    ttl:
+      player_data: "15m"
+      course_analytics: "1h"
+      tournament_predictions: "10m"
+      weather_data: "5m"
+      correlation_matrix: "30m"
+    
+    # Cache invalidation triggers
+    invalidation:
+      on_live_data_update: true
+      on_weather_change: true
+      on_cut_line_movement: 0.5  # strokes
+  
+  # Performance Monitoring
+  monitoring:
+    enabled: true
+    metrics:
+      api_response_times: true
+      optimization_accuracy: true
+      correlation_validation: true
+      user_engagement: true
+    
+    # Performance targets
+    targets:
+      api_response_time: "200ms"
+      optimization_accuracy: 0.75
+      uptime: 0.999
+      cache_hit_rate: 0.85
+  
+  # Feature Flags
+  feature_flags:
+    # Core features
+    enhanced_optimization: true
+    real_time_updates: true
+    ai_recommendations: true
+    
+    # Experimental features
+    machine_learning_models: false
+    advanced_analytics: true
+    social_features: false
+    
+    # A/B Testing
+    algorithm_comparison: false
+    ui_enhancements: false
+
+# Environment-specific overrides
+environments:
+  development:
+    datagolf:
+      api:
+        timeout: 60s
+      real_time:
+        enabled: false
+      monitoring:
+        enabled: false
+      feature_flags:
+        advanced_analytics: true
+        machine_learning_models: true
+  
+  staging:
+    datagolf:
+      cache:
+        ttl:
+          player_data: "5m"
+          course_analytics: "30m"
+      monitoring:
+        enabled: true
+      feature_flags:
+        algorithm_comparison: true
+  
+  production:
+    datagolf:
+      api:
+        rate_limit:
+          requests_per_minute: 100
+      real_time:
+        enabled: true
+      monitoring:
+        enabled: true
+      feature_flags:
+        enhanced_optimization: true
+        real_time_updates: true
+        ai_recommendations: true

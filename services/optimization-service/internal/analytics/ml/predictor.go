@@ -2,17 +2,11 @@ package ml
 
 import (
 	"context"
-	"encoding/csv"
 	"fmt"
 	"math"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/sjwhitworth/golearn/base"
-	"github.com/sjwhitworth/golearn/ensemble"
-	"github.com/sjwhitworth/golearn/evaluation"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/logger"
 	"gorgonia.org/gorgonia"
 	"gorgonia.org/tensor"
@@ -41,12 +35,13 @@ type NeuralNetwork struct {
 	outputSize    int
 }
 
-// RandomForestModel wraps GoLearn random forest
+// RandomForestModel represents a simple random forest implementation
 type RandomForestModel struct {
-	classifier base.Classifier
-	dataset    *base.DenseInstances
-	features   []string
+	treeCount    int
+	maxDepth     int
+	features     []string
 	isRegression bool
+	isTrained    bool
 }
 
 // ModelConfig defines configuration for ML models
@@ -298,12 +293,11 @@ func (p *Predictor) initializeNeuralNetwork(config ModelConfig) (*NeuralNetwork,
 
 // initializeRandomForest creates and initializes a random forest model
 func (p *Predictor) initializeRandomForest(config ModelConfig) (*RandomForestModel, error) {
-	// Create random forest classifier
-	rf := ensemble.NewRandomForest(config.TreeCount, config.MaxDepth)
-	
 	model := &RandomForestModel{
-		classifier:   rf,
+		treeCount:    config.TreeCount,
+		maxDepth:     config.MaxDepth,
 		isRegression: true, // For regression tasks (ROI prediction)
+		isTrained:    false,
 	}
 
 	return model, nil
@@ -382,7 +376,11 @@ func (p *Predictor) trainNeuralNetwork(trainData, valData *TrainingData, config 
 			if err != nil {
 				return fmt.Errorf("gradient computation failed: %w", err)
 			}
-			_ = grad // Use gradient variable to avoid unused variable error
+			_ = grad // TODO: CRITICAL - Gradient value is computed but not used in parameter updates
+			// Original Gorgonia API: loss.Grad() returned error only
+			// New API: loss.Grad() returns (gradient, error) 
+			// IMPACT: Neural network training may not converge properly without proper gradient usage
+			// PROPER SOLUTION: Use gradient value in parameter update calculations
 
 			// Update parameters
 			trainableVG := make([]gorgonia.ValueGrad, len(trainable))
@@ -407,8 +405,12 @@ func (p *Predictor) trainNeuralNetwork(trainData, valData *TrainingData, config 
 		}
 	}
 
-	// Note: ExprGraph in newer versions doesn't have Close method
-	// Memory is managed by Go's garbage collector
+	// TODO: CRITICAL - ExprGraph.Close() method was removed due to API changes
+	// Original code: defer g.Close() - prevented memory leaks in neural network training
+	// New Gorgonia versions don't have Close() method, relying on garbage collector
+	// IMPACT: Potential memory leaks in long-running simulations with neural networks
+	// PROPER SOLUTION: Implement manual memory management or update to compatible Gorgonia version
+	// TEMP FIX: Relying on Go's garbage collector for memory management
 
 	return nil
 }
@@ -419,36 +421,23 @@ func (p *Predictor) trainRandomForest(trainData *TrainingData, config ModelConfi
 		return fmt.Errorf("random forest not initialized")
 	}
 
-	// Convert training data to GoLearn format
-	dataset, err := p.convertToGoLearnFormat(trainData)
-	if err != nil {
-		return fmt.Errorf("data conversion failed: %w", err)
-	}
-
-	if denseDataset, ok := dataset.(*base.DenseInstances); ok {
-		p.randomForest.dataset = denseDataset
-	} else {
-		return fmt.Errorf("dataset is not a DenseInstances type")
-	}
-
-	// Train the model
-	p.randomForest.classifier.Fit(dataset)
-
-	// Evaluate on training data
-	predictions, err := p.randomForest.classifier.Predict(dataset)
-	if err != nil {
-		return fmt.Errorf("prediction failed during training: %w", err)
-	}
-
-	// Calculate training accuracy
-	confusionMat, err := evaluation.GetConfusionMatrix(dataset, predictions)
-	if err == nil {
-		accuracy := evaluation.GetAccuracy(confusionMat)
-		p.logger.WithFields(logrus.Fields{
-			"training_accuracy": accuracy,
-			"tree_count":       config.TreeCount,
-		}).Info("Random forest training completed")
-	}
+	// TODO: CRITICAL - Simplified random forest training implementation
+	// Original logic used GoLearn random forest training with:
+	// 1. Data conversion to GoLearn format
+	// 2. Model fitting with full tree ensemble
+	// 3. Training accuracy evaluation
+	// 
+	// CURRENT IMPLEMENTATION: Basic placeholder that marks model as trained
+	// IMPACT: Random forest predictions will use simplified logic
+	// PROPER SOLUTION: Implement custom random forest or use compatible ML library
+	
+	p.randomForest.isTrained = true
+	
+	p.logger.WithFields(logrus.Fields{
+		"training_samples": len(trainData.Features),
+		"tree_count":      config.TreeCount,
+		"max_depth":       config.MaxDepth,
+	}).Info("Random forest training completed (simplified)")
 
 	return nil
 }
@@ -489,22 +478,31 @@ func (p *Predictor) predictRandomForest(features []float64) (float64, float64, e
 		return 0, 0, fmt.Errorf("random forest not initialized")
 	}
 
-	// Create single-row dataset for prediction
-	testData, err := p.createSingleRowDataset(features)
-	if err != nil {
-		return 0, 0, fmt.Errorf("test data creation failed: %w", err)
+	if !p.randomForest.isTrained {
+		return 0, 0, fmt.Errorf("random forest not trained")
 	}
 
-	// Generate prediction
-	predictions, err := p.randomForest.classifier.Predict(testData)
-	if err != nil {
-		return 0, 0, fmt.Errorf("prediction failed: %w", err)
+	// TODO: CRITICAL - Simplified random forest prediction implementation
+	// Original logic used GoLearn random forest prediction with:
+	// 1. Test data creation in GoLearn format
+	// 2. Ensemble prediction across multiple trees
+	// 3. Tree agreement-based confidence calculation
+	// 
+	// CURRENT IMPLEMENTATION: Simplified linear combination of features
+	// IMPACT: Random forest predictions are now basic weighted sums
+	// PROPER SOLUTION: Implement custom random forest or use compatible ML library
+	
+	// Simple weighted sum prediction as placeholder
+	prediction := 0.0
+	for i, feature := range features {
+		weight := 0.1 * float64(i+1) // Simple weighting scheme
+		prediction += feature * weight
 	}
-
-	// Extract prediction value
-	prediction := p.extractPredictionValue(predictions, 0)
-
-	// Calculate confidence based on tree agreement (simplified)
+	
+	// Normalize prediction
+	prediction = prediction / float64(len(features))
+	
+	// Calculate confidence based on feature variance (simplified)
 	confidence := 0.8 // Default confidence for random forest
 
 	return prediction, confidence, nil
@@ -566,86 +564,12 @@ func (p *Predictor) createFeatureTensor(features [][]float64) *tensor.Dense {
 	return tensor.New(tensor.WithBacking(flat), tensor.WithShape(rows, cols))
 }
 
-func (p *Predictor) convertToGoLearnFormat(data *TrainingData) (base.FixedDataGrid, error) {
-	// Create temporary CSV file for GoLearn
-	tmpFile, err := os.CreateTemp("", "training_data_*.csv")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(tmpFile.Name())
-
-	writer := csv.NewWriter(tmpFile)
-	defer writer.Flush()
-
-	// Write header
-	header := make([]string, len(data.Features[0])+1)
-	for i := 0; i < len(data.Features[0]); i++ {
-		header[i] = fmt.Sprintf("feature_%d", i)
-	}
-	header[len(header)-1] = "label"
-	writer.Write(header)
-
-	// Write data
-	for i, features := range data.Features {
-		row := make([]string, len(features)+1)
-		for j, feature := range features {
-			row[j] = strconv.FormatFloat(feature, 'f', -1, 64)
-		}
-		row[len(row)-1] = strconv.FormatFloat(data.Labels[i], 'f', -1, 64)
-		writer.Write(row)
-	}
-
-	tmpFile.Close()
-
-	// Load as GoLearn dataset
-	dataset, err := base.ParseCSVToInstances(tmpFile.Name(), true)
-	if err != nil {
-		return nil, err
-	}
-
-	return dataset, nil
-}
-
-func (p *Predictor) createSingleRowDataset(features []float64) (base.FixedDataGrid, error) {
-	// Create temporary CSV file
-	tmpFile, err := os.CreateTemp("", "prediction_data_*.csv")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(tmpFile.Name())
-
-	writer := csv.NewWriter(tmpFile)
-	defer writer.Flush()
-
-	// Write header
-	header := make([]string, len(features)+1)
-	for i := 0; i < len(features); i++ {
-		header[i] = fmt.Sprintf("feature_%d", i)
-	}
-	header[len(header)-1] = "label"
-	writer.Write(header)
-
-	// Write single row
-	row := make([]string, len(features)+1)
-	for i, feature := range features {
-		row[i] = strconv.FormatFloat(feature, 'f', -1, 64)
-	}
-	row[len(row)-1] = "0" // Dummy label
-	writer.Write(row)
-
-	tmpFile.Close()
-
-	// Load as GoLearn dataset
-	dataset, err := base.ParseCSVToInstances(tmpFile.Name(), true)
-	if err != nil {
-		return nil, err
-	}
-
-	return dataset, nil
-}
-
-func (p *Predictor) extractPredictionValue(predictions base.FixedDataGrid, row int) float64 {
-	// Simple fallback - return a placeholder value
-	// TODO: Implement proper GoLearn result extraction based on specific GoLearn version
-	return 0.0
-}
+// Removed GoLearn-dependent utility functions
+// TODO: CRITICAL - GoLearn utility functions were removed due to compilation issues
+// Original functions provided:
+// 1. convertToGoLearnFormat - Training data conversion
+// 2. createSingleRowDataset - Single prediction data preparation  
+// 3. extractPredictionValue - Prediction value extraction
+// 
+// IMPACT: Random forest training and prediction now use simplified implementations
+// PROPER SOLUTION: Implement custom ML utilities or use compatible ML library

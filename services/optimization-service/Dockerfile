@@ -10,6 +10,9 @@ WORKDIR /app
 # Copy shared dependencies first
 COPY shared/ ./shared/
 
+# Copy sports-data-service (needed for local dependency)
+COPY services/sports-data-service/ ./services/sports-data-service/
+
 # Copy optimization service source
 COPY services/optimization-service/ ./services/optimization-service/
 

@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stitts-dev/dfs-sim/services/sports-data-service/internal/models"
 	"github.com/stitts-dev/dfs-sim/services/sports-data-service/internal/providers"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/database"
 	"github.com/stitts-dev/dfs-sim/shared/types"
-	"github.com/sirupsen/logrus"
 )
 
 // CutProbabilityEngineInterface defines the interface for cut probability calculations
@@ -39,7 +39,7 @@ type GolfProjectionService struct {
 	db                   *database.DB
 	cache                *CacheService
 	logger               *logrus.Logger
-	golfProvider         *providers.ESPNGolfClient
+	golfProvider         *providers.DataGolfClient
 	weatherService       *WeatherService
 	cutProbabilityEngine CutProbabilityEngineInterface
 }
@@ -49,12 +49,13 @@ func NewGolfProjectionService(
 	db *database.DB,
 	cache *CacheService,
 	logger *logrus.Logger,
+	apiKey string,
 ) *GolfProjectionService {
 	return &GolfProjectionService{
 		db:           db,
 		cache:        cache,
 		logger:       logger,
-		golfProvider: providers.NewESPNGolfClient(cache, logger),
+		golfProvider: providers.NewDataGolfClient(apiKey, db.DB, cache, logger),
 	}
 }
 
@@ -99,7 +100,7 @@ func (gps *GolfProjectionService) GenerateProjections(
 		playerID := player.GetID()
 		entry := entries[playerID]
 		history := courseHistory[playerID]
-		
+
 		projection := gps.generatePlayerProjection(player, tournament, entry, history)
 		projections[playerID] = projection
 	}
@@ -146,16 +147,16 @@ func (gps *GolfProjectionService) generatePlayerProjection(
 		// Get current weather conditions for the course
 		if weather, err := gps.weatherService.GetWeatherConditions(context.Background(), tournament.CourseID); err == nil {
 			weatherImpact := gps.weatherService.CalculateGolfImpact(weather)
-			
+
 			// Apply weather impact to expected score
 			projection.ExpectedScore += weatherImpact.ScoreImpact
-			
+
 			// Store weather advantage scores
 			projection.WeatherAdvantage = weatherImpact.WindAdvantage
 			projection.TeeTimeAdvantage = weatherImpact.TeeTimeAdvantage
 			projection.WeatherImpactScore = weatherImpact.ScoreImpact
-			
-			gps.logger.Debugf("Applied weather impact for player %s: score_impact=%.2f, wind_advantage=%.3f", 
+
+			gps.logger.Debugf("Applied weather impact for player %s: score_impact=%.2f, wind_advantage=%.3f",
 				player.GetID(), weatherImpact.ScoreImpact, weatherImpact.WindAdvantage)
 		} else {
 			gps.logger.Warnf("Failed to get weather conditions for course %s: %v", tournament.CourseID, err)
@@ -165,10 +166,10 @@ func (gps *GolfProjectionService) generatePlayerProjection(
 	// Enhanced cut probability calculation using cut probability engine
 	if gps.cutProbabilityEngine != nil {
 		if cutResult, err := gps.cutProbabilityEngine.CalculateCutProbability(
-			context.Background(), 
-			player.GetID().String(), 
-			tournament.ID.String(), 
-			tournament.CourseID, 
+			context.Background(),
+			player.GetID().String(),
+			tournament.ID.String(),
+			tournament.CourseID,
 			tournament.FieldStrength,
 		); err == nil {
 			projection.BaseCutProbability = cutResult.BaseCutProb
@@ -176,8 +177,8 @@ func (gps *GolfProjectionService) generatePlayerProjection(
 			projection.WeatherAdjustedCut = cutResult.WeatherAdjusted
 			projection.FinalCutProbability = cutResult.FinalCutProb
 			projection.CutConfidence = cutResult.Confidence
-			
-			gps.logger.Debugf("Calculated cut probability for player %s: final=%.3f, confidence=%.3f", 
+
+			gps.logger.Debugf("Calculated cut probability for player %s: final=%.3f, confidence=%.3f",
 				player.GetID(), cutResult.FinalCutProb, cutResult.Confidence)
 		} else {
 			gps.logger.Warnf("Failed to calculate cut probability for player %s: %v", player.GetID(), err)
@@ -197,7 +198,7 @@ func (gps *GolfProjectionService) generatePlayerProjection(
 
 	// Calculate expected finish position
 	projection.ExpectedFinishPosition = gps.calculateExpectedFinish(player, tournament, projection.FinalCutProbability)
-	
+
 	// Calculate strategy-specific scores
 	projection.StrategyFitScore = gps.calculateStrategyFit(projection)
 	projection.RiskRewardRatio = gps.calculateRiskReward(projection)
@@ -535,7 +536,7 @@ func (gps *GolfProjectionService) generateCorrelations(players []types.PlayerInt
 	// Currently using a simplified correlation implementation based on player positions
 	// Generate a simple correlation matrix based on tee times and groupings
 	correlations := make(map[uuid.UUID]map[uuid.UUID]float64)
-	
+
 	// Initialize correlation matrix
 	for _, p1 := range players {
 		correlations[p1.GetID()] = make(map[uuid.UUID]float64)
@@ -547,7 +548,7 @@ func (gps *GolfProjectionService) generateCorrelations(players []types.PlayerInt
 			}
 		}
 	}
-	
+
 	// Add correlations for players in same groupings (if available in entries)
 	// This is a simplified implementation - in production you'd want more sophisticated correlation modeling
 	for _, p1 := range players {
@@ -555,17 +556,17 @@ func (gps *GolfProjectionService) generateCorrelations(players []types.PlayerInt
 		if !exists1 {
 			continue
 		}
-		
+
 		for _, p2 := range players {
 			if p1.GetID() == p2.GetID() {
 				continue
 			}
-			
+
 			e2, exists2 := entries[p2.GetID()]
 			if !exists2 {
 				continue
 			}
-			
+
 			// TODO: Implement proper tee time correlation using TeeTimes array
 			// Currently using position proximity as a proxy for correlation
 			// Players in same tournament round/grouping have some correlation
@@ -581,7 +582,7 @@ func (gps *GolfProjectionService) generateCorrelations(players []types.PlayerInt
 			}
 		}
 	}
-	
+
 	return correlations
 }
 
@@ -621,7 +622,7 @@ func (gps *GolfProjectionService) calculateSimpleCutProbability(player types.Pla
 	if salary == 0 {
 		salary = player.GetSalaryFD()
 	}
-	
+
 	if salary > 10000 {
 		baseProbability += 0.2
 	} else if salary > 8000 {

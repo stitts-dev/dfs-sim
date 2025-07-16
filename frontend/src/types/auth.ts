@@ -1,4 +1,8 @@
-// Authentication type definitions for phone-based auth system
+// Authentication type definitions for multi-method auth system
+
+export type AuthMethod = 'phone' | 'email'
+export type AuthStepType = 'welcome' | 'method-selection' | 'phone' | 'email' | 'password' | 'verification' | 'email-verification' | 'success' | 'onboarding'
+export type AuthWizardMode = 'login' | 'signup'
 
 export interface PhoneAuthRequest {
   phone_number: string
@@ -16,6 +20,20 @@ export interface LoginRequest {
 
 export interface ResendRequest {
   phone_number: string
+}
+
+export interface EmailAuthRequest {
+  email: string
+  password: string
+}
+
+export interface EmailVerificationRequest {
+  email: string
+  code: string
+}
+
+export interface PasswordResetRequest {
+  email: string
 }
 
 export interface AuthUser {
@@ -55,12 +73,12 @@ export interface AuthState {
   isLoading: boolean
   error: string | null
   isAuthenticated: boolean
-  
+
   // Phone auth flow state
   currentPhoneNumber: string | null
   otpSent: boolean
   verificationInProgress: boolean
-  
+
   // Actions
   loginWithPhone: (phoneNumber: string) => Promise<void>
   verifyOTP: (phoneNumber: string, code: string) => Promise<void>
@@ -69,7 +87,7 @@ export interface AuthState {
   clearError: () => void
   refreshToken: () => Promise<void>
   getCurrentUser: () => Promise<void>
-  
+
   // Utility actions
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
@@ -146,4 +164,42 @@ export interface RateLimitInfo {
   remainingAttempts: number
   resetTime: string
   blocked: boolean
+}
+
+// Auth Provider interfaces
+export interface AuthProviderConfig {
+  enabled: boolean
+  priority: number
+  requiresVerification: boolean
+}
+
+export interface AuthCredentials {
+  method: AuthMethod
+  phoneNumber?: string
+  email?: string
+  password?: string
+  verificationCode?: string
+  mode?: AuthWizardMode
+}
+
+export interface AuthProviderResult {
+  success: boolean
+  user?: AuthUser
+  token?: string
+  error?: string
+  requiresVerification?: boolean
+  verificationSent?: boolean
+}
+
+export abstract class AuthProvider {
+  abstract method: AuthMethod
+  abstract config: AuthProviderConfig
+
+  abstract sendVerification(credentials: AuthCredentials): Promise<AuthProviderResult>
+  abstract verifyCredentials(credentials: AuthCredentials): Promise<AuthProviderResult>
+  abstract resendVerification(credentials: AuthCredentials): Promise<AuthProviderResult>
+  abstract resetPassword?(credentials: AuthCredentials): Promise<AuthProviderResult>
+
+  abstract validateInput(credentials: AuthCredentials): boolean
+  abstract formatInput(input: string): string
 }

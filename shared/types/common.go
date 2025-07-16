@@ -94,46 +94,55 @@ type PlayerInterface interface {
 
 // Player represents a DFS player (shared across all services)
 type Player struct {
-	ID              uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	SportID         uuid.UUID  `gorm:"type:uuid;not null" json:"sport_id"`
-	ExternalID      string     `gorm:"not null" json:"external_id"`
-	Name            string     `gorm:"not null" json:"name"`
-	Team            string     `gorm:"not null" json:"team"`
-	Opponent        string     `gorm:"not null" json:"opponent"`
-	Position        string     `gorm:"not null" json:"position"`
-	SalaryDK        int        `json:"salary_dk"`
-	SalaryFD        int        `json:"salary_fd"`
-	ProjectedPoints float64    `gorm:"not null" json:"projected_points"`
-	FloorPoints     float64    `gorm:"not null" json:"floor_points"`
-	CeilingPoints   float64    `gorm:"not null" json:"ceiling_points"`
-	OwnershipDK     float64    `json:"ownership_dk"`
-	OwnershipFD     float64    `json:"ownership_fd"`
-	ContestID       *uuid.UUID `gorm:"type:uuid;index" json:"contest_id,omitempty"`
-	GameTime        time.Time  `gorm:"not null" json:"game_time"`
-	IsInjured       bool       `gorm:"default:false" json:"is_injured"`
-	InjuryStatus    string     `json:"injury_status,omitempty"`
-	ImageURL        string     `json:"image_url,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID                 uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	SportID            uuid.UUID  `gorm:"type:uuid;not null" json:"sport_id"`
+	ExternalID         string     `gorm:"not null" json:"external_id"`
+	Name               string     `gorm:"not null" json:"name"`
+	Team               *string    `json:"team,omitempty"`
+	Opponent           *string    `json:"opponent,omitempty"`
+	Position           *string    `json:"position,omitempty"`
+	SalaryDK           *int       `json:"salary_dk,omitempty"`
+	SalaryFD           *int       `json:"salary_fd,omitempty"`
+	ProjectedPoints    *float64   `json:"projected_points,omitempty"`
+	FloorPoints        *float64   `json:"floor_points,omitempty"`
+	CeilingPoints      *float64   `json:"ceiling_points,omitempty"`
+	OwnershipDK        *float64   `json:"ownership_dk,omitempty"`
+	OwnershipFD        *float64   `json:"ownership_fd,omitempty"`
+	ContestID          *uuid.UUID `gorm:"type:uuid;index" json:"contest_id,omitempty"`
+	GameTime           *time.Time `json:"game_time,omitempty"`
+	IsInjured          *bool      `gorm:"default:false" json:"is_injured,omitempty"`
+	InjuryStatus       *string    `json:"injury_status,omitempty"`
+	ImageURL           *string    `json:"image_url,omitempty"`
+	IsActive           *bool      `gorm:"default:true" json:"is_active,omitempty"`
+	Metadata           *string    `gorm:"type:jsonb" json:"metadata,omitempty"`
+	// New fields for two-source architecture
+	ContestPlayerID    *string    `json:"contest_player_id,omitempty"`
+	DataSource         *string    `gorm:"default:'contest'" json:"data_source,omitempty"`
+	ExternalPlatformID *string    `json:"external_platform_id,omitempty"`
+	TournamentPlayerID *string    `json:"tournament_player_id,omitempty"`
+	TournamentID       *uuid.UUID `gorm:"type:uuid" json:"tournament_id,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 // Implement PlayerInterface for types.Player
 func (p Player) GetID() uuid.UUID              { return p.ID }
 func (p Player) GetExternalID() string         { return p.ExternalID }
 func (p Player) GetName() string               { return p.Name }
-func (p Player) GetTeam() string               { return p.Team }
-func (p Player) GetPosition() string           { return p.Position }
-func (p Player) GetSalaryDK() int              { return p.SalaryDK }
-func (p Player) GetSalaryFD() int              { return p.SalaryFD }
-func (p Player) GetProjectedPoints() float64   { return p.ProjectedPoints }
-func (p Player) GetFloorPoints() float64       { return p.FloorPoints }
-func (p Player) GetCeilingPoints() float64     { return p.CeilingPoints }
-func (p Player) GetOwnershipDK() float64       { return p.OwnershipDK }
-func (p Player) GetOwnershipFD() float64       { return p.OwnershipFD }
-func (p Player) GetGameTime() time.Time        { return p.GameTime }
-func (p Player) IsPlayerInjured() bool         { return p.IsInjured }
-func (p Player) GetInjuryStatus() string       { return p.InjuryStatus }
-func (p Player) GetImageURL() string           { return p.ImageURL }
+func (p Player) GetTeam() string               { if p.Team != nil { return *p.Team }; return "" }
+func (p Player) GetOpponent() string           { if p.Opponent != nil { return *p.Opponent }; return "" }
+func (p Player) GetPosition() string           { if p.Position != nil { return *p.Position } ; return "" }
+func (p Player) GetSalaryDK() int              { if p.SalaryDK != nil { return *p.SalaryDK } ; return 0 }
+func (p Player) GetSalaryFD() int              { if p.SalaryFD != nil { return *p.SalaryFD } ; return 0 }
+func (p Player) GetProjectedPoints() float64   { if p.ProjectedPoints != nil { return *p.ProjectedPoints } ; return 0 }
+func (p Player) GetFloorPoints() float64       { if p.FloorPoints != nil { return *p.FloorPoints } ; return 0 }
+func (p Player) GetCeilingPoints() float64     { if p.CeilingPoints != nil { return *p.CeilingPoints } ; return 0 }
+func (p Player) GetOwnershipDK() float64       { if p.OwnershipDK != nil { return *p.OwnershipDK } ; return 0 }
+func (p Player) GetOwnershipFD() float64       { if p.OwnershipFD != nil { return *p.OwnershipFD } ; return 0 }
+func (p Player) GetGameTime() time.Time        { if p.GameTime != nil { return *p.GameTime } ; return time.Time{} }
+func (p Player) IsPlayerInjured() bool         { if p.IsInjured != nil { return *p.IsInjured } ; return false }
+func (p Player) GetInjuryStatus() string       { if p.InjuryStatus != nil { return *p.InjuryStatus } ; return "" }
+func (p Player) GetImageURL() string           { if p.ImageURL != nil { return *p.ImageURL } ; return "" }
 
 // SimulationResult represents the result of a Monte Carlo simulation
 type SimulationResult struct {
@@ -194,7 +203,7 @@ type Contest struct {
 	ExternalID           string               `gorm:"index" json:"external_id"`
 	DraftGroupID         string               `gorm:"index" json:"draft_group_id"`
 	LastSyncTime         *time.Time           `json:"last_sync_time,omitempty"`
-	PositionRequirements PositionRequirements `gorm:"type:jsonb" json:"position_requirements"`
+	PositionRequirements PositionRequirements `gorm:"column:roster_positions;type:jsonb" json:"roster_positions"`
 }
 
 // PositionRequirements defines how many players needed for each position

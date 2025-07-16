@@ -1,0 +1,436 @@
+package services
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"github.com/stitts-dev/dfs-sim/services/sports-data-service/internal/providers"
+	"github.com/stitts-dev/dfs-sim/shared/pkg/database"
+	"github.com/stitts-dev/dfs-sim/shared/types"
+	"gorm.io/gorm"
+)
+
+// TournamentDataEnricher enhances contest players with tournament data
+type TournamentDataEnricher struct {
+	db               *database.DB
+	logger           *logrus.Logger
+	rapidAPIProvider *providers.RapidAPIGolfClient
+	espnProvider     *providers.ESPNGolfClient
+	playerMatcher    *PlayerMatchingService
+}
+
+// NewTournamentDataEnricher creates a new tournament data enricher
+func NewTournamentDataEnricher(
+	db *database.DB,
+	logger *logrus.Logger,
+	rapidAPIProvider *providers.RapidAPIGolfClient,
+	espnProvider *providers.ESPNGolfClient,
+	playerMatcher *PlayerMatchingService,
+) *TournamentDataEnricher {
+	return &TournamentDataEnricher{
+		db:               db,
+		logger:           logger,
+		rapidAPIProvider: rapidAPIProvider,
+		espnProvider:     espnProvider,
+		playerMatcher:    playerMatcher,
+	}
+}
+
+// EnhancementResult represents the result of player enhancement
+type EnhancementResult struct {
+	ContestID       uuid.UUID `json:"contest_id"`
+	TournamentID    uuid.UUID `json:"tournament_id"`
+	PlayersEnhanced int       `json:"players_enhanced"`
+	PlayersSkipped  int       `json:"players_skipped"`
+	Errors          int       `json:"errors"`
+	Duration        time.Duration `json:"duration"`
+}
+
+// EnhanceContestPlayers enhances all contest players with tournament data
+func (tde *TournamentDataEnricher) EnhanceContestPlayers(ctx context.Context, contestID uuid.UUID) (*EnhancementResult, error) {
+	startTime := time.Now()
+	
+	logger := tde.logger.WithFields(logrus.Fields{
+		"component":  "tournament_enricher",
+		"contest_id": contestID,
+	})
+
+	logger.Info("Starting tournament data enhancement for contest")
+
+	// Get contest to find associated tournament
+	var contest types.Contest
+	if err := tde.db.WithContext(ctx).First(&contest, contestID).Error; err != nil {
+		return nil, fmt.Errorf("contest not found: %w", err)
+	}
+
+	if contest.TournamentID == nil {
+		return nil, fmt.Errorf("contest has no associated tournament")
+	}
+
+	// Get tournament data
+	var tournament types.GolfTournament
+	if err := tde.db.WithContext(ctx).First(&tournament, *contest.TournamentID).Error; err != nil {
+		return nil, fmt.Errorf("tournament not found: %w", err)
+	}
+
+	// Get matched players for this contest
+	matchedPlayers, err := tde.playerMatcher.GetMatchedPlayersForContest(ctx, contestID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get matched players: %w", err)
+	}
+
+	if len(matchedPlayers) == 0 {
+		logger.Warn("No matched players found for enhancement")
+		return &EnhancementResult{
+			ContestID:    contestID,
+			TournamentID: *contest.TournamentID,
+			Duration:     time.Since(startTime),
+		}, nil
+	}
+
+	logger.WithField("matched_players", len(matchedPlayers)).Info("Found matched players to enhance")
+
+	// Get tournament player data from RapidAPI
+	tournamentPlayerData, err := tde.getTournamentPlayerData(ctx, tournament, types.SportGolf)
+	if err != nil {
+		logger.WithError(err).Warn("Failed to get tournament data from RapidAPI, trying ESPN fallback")
+		
+		// Try ESPN fallback
+		tournamentPlayerData, err = tde.getESPNTournamentData(ctx, tournament, types.SportGolf)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get tournament data from both providers: %w", err)
+		}
+	}
+
+	// Create lookup map for efficient matching
+	tournamentDataMap := make(map[string]types.PlayerData)
+	for _, playerData := range tournamentPlayerData {
+		tournamentDataMap[playerData.ExternalID] = playerData
+	}
+
+	// Enhance each matched player
+	result := &EnhancementResult{
+		ContestID:    contestID,
+		TournamentID: *contest.TournamentID,
+	}
+
+	for _, player := range matchedPlayers {
+		if player.TournamentPlayerID == nil {
+			result.PlayersSkipped++
+			continue
+		}
+
+		tournamentData, exists := tournamentDataMap[*player.TournamentPlayerID]
+		if !exists {
+			logger.WithField("player", player.Name).Warn("Tournament data not found for player")
+			result.PlayersSkipped++
+			continue
+		}
+
+		if err := tde.enhancePlayer(ctx, &player, tournamentData, tournament); err != nil {
+			logger.WithError(err).WithField("player", player.Name).Error("Failed to enhance player")
+			result.Errors++
+			continue
+		}
+
+		result.PlayersEnhanced++
+	}
+
+	result.Duration = time.Since(startTime)
+
+	logger.WithFields(logrus.Fields{
+		"enhanced": result.PlayersEnhanced,
+		"skipped":  result.PlayersSkipped,
+		"errors":   result.Errors,
+		"duration": result.Duration,
+	}).Info("Tournament data enhancement completed")
+
+	return result, nil
+}
+
+// getTournamentPlayerData fetches tournament player data from RapidAPI
+func (tde *TournamentDataEnricher) getTournamentPlayerData(ctx context.Context, tournament types.GolfTournament, sport types.Sport) ([]types.PlayerData, error) {
+	if tde.rapidAPIProvider == nil {
+		return nil, fmt.Errorf("RapidAPI provider not available")
+	}
+
+	// Get players from RapidAPI
+	players, err := tde.rapidAPIProvider.GetPlayers(sport, time.Now().Format("2006-01-02"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get players from RapidAPI: %w", err)
+	}
+
+	tde.logger.WithField("players_count", len(players)).Info("Retrieved tournament player data from RapidAPI")
+	return players, nil
+}
+
+// getESPNTournamentData fetches tournament player data from ESPN fallback
+func (tde *TournamentDataEnricher) getESPNTournamentData(ctx context.Context, tournament types.GolfTournament, sport types.Sport) ([]types.PlayerData, error) {
+	if tde.espnProvider == nil {
+		return nil, fmt.Errorf("ESPN provider not available")
+	}
+
+	// Get players from ESPN
+	players, err := tde.espnProvider.GetPlayers(sport, time.Now().Format("2006-01-02"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get players from ESPN: %w", err)
+	}
+
+	tde.logger.WithField("players_count", len(players)).Info("Retrieved tournament player data from ESPN")
+	return players, nil
+}
+
+// enhancePlayer enhances a single player with tournament data
+func (tde *TournamentDataEnricher) enhancePlayer(ctx context.Context, player *types.Player, tournamentData types.PlayerData, tournament types.GolfTournament) error {
+	// Calculate projections based on tournament data
+	projections := tde.calculateProjections(tournamentData, tournament)
+
+	// Update player with enhanced data
+	updates := map[string]interface{}{
+		"projected_points": projections.ProjectedPoints,
+		"floor_points":     projections.FloorPoints,
+		"ceiling_points":   projections.CeilingPoints,
+		"data_source":      "enhanced",
+		"updated_at":       time.Now(),
+	}
+
+	// Add tournament-specific data
+	if tournamentData.Team != "" {
+		updates["team"] = tournamentData.Team
+	}
+
+	// Add game time from tournament
+	if !tournament.StartDate.IsZero() {
+		updates["game_time"] = tournament.StartDate
+	}
+
+	// Add stats metadata
+	if tournamentData.Stats != nil {
+		updates["metadata"] = tournamentData.Stats
+	}
+
+	// Update player in database
+	if err := tde.db.WithContext(ctx).Model(player).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to update player: %w", err)
+	}
+
+	tde.logger.WithFields(logrus.Fields{
+		"player_id":        player.ID,
+		"player_name":      player.Name,
+		"projected_points": projections.ProjectedPoints,
+		"floor_points":     projections.FloorPoints,
+		"ceiling_points":   projections.CeilingPoints,
+	}).Debug("Enhanced player with tournament data")
+
+	return nil
+}
+
+// PlayerProjections represents calculated projections for a player
+type PlayerProjections struct {
+	ProjectedPoints float64
+	FloorPoints     float64
+	CeilingPoints   float64
+}
+
+// calculateProjections calculates fantasy projections based on tournament data
+func (tde *TournamentDataEnricher) calculateProjections(tournamentData types.PlayerData, tournament types.GolfTournament) PlayerProjections {
+	// Base projections - this would normally be more sophisticated
+	baseProjection := 50.0 // Base fantasy points for golf
+
+	// Extract stats from tournament data
+	stats, ok := tournamentData.Stats.(map[string]interface{})
+	if !ok {
+		// Return default projections if no stats available
+		return PlayerProjections{
+			ProjectedPoints: baseProjection,
+			FloorPoints:     baseProjection * 0.7,
+			CeilingPoints:   baseProjection * 1.5,
+		}
+	}
+
+	// Adjust based on current tournament position
+	if position, exists := stats["position"]; exists {
+		if pos, ok := position.(float64); ok {
+			// Better position = higher projection
+			positionMultiplier := 1.0 + (100.0-pos)/100.0*0.3
+			baseProjection *= positionMultiplier
+		}
+	}
+
+	// Adjust based on score to par
+	if score, exists := stats["score"]; exists {
+		if scoreVal, ok := score.(float64); ok {
+			// Better score (lower/more negative) = higher projection
+			scoreMultiplier := 1.0 + (scoreVal * -0.02) // Each stroke under par adds 2%
+			baseProjection *= scoreMultiplier
+		}
+	}
+
+	// Adjust based on holes played
+	if holes, exists := stats["holes_played"]; exists {
+		if holesVal, ok := holes.(float64); ok {
+			// More holes played = more confidence in projection
+			if holesVal < 18 {
+				baseProjection *= 0.8 // Reduce for partial rounds
+			}
+		}
+	}
+
+	// Add variance for floor and ceiling
+	variance := baseProjection * 0.3
+	
+	projections := PlayerProjections{
+		ProjectedPoints: baseProjection,
+		FloorPoints:     baseProjection - variance,
+		CeilingPoints:   baseProjection + variance*2, // Ceiling has more upside
+	}
+
+	// Ensure minimum values
+	if projections.FloorPoints < 0 {
+		projections.FloorPoints = 0
+	}
+
+	return projections
+}
+
+// EnhancePlayersByTournament enhances all players for contests related to a tournament
+func (tde *TournamentDataEnricher) EnhancePlayersByTournament(ctx context.Context, tournamentID uuid.UUID) ([]*EnhancementResult, error) {
+	logger := tde.logger.WithFields(logrus.Fields{
+		"component":     "tournament_enricher",
+		"tournament_id": tournamentID,
+	})
+
+	logger.Info("Starting tournament data enhancement for all related contests")
+
+	// Get all contests for this tournament
+	var contests []types.Contest
+	if err := tde.db.WithContext(ctx).Where("tournament_id = ?", tournamentID).Find(&contests).Error; err != nil {
+		return nil, fmt.Errorf("failed to get contests for tournament: %w", err)
+	}
+
+	if len(contests) == 0 {
+		logger.Warn("No contests found for tournament")
+		return []*EnhancementResult{}, nil
+	}
+
+	logger.WithField("contests", len(contests)).Info("Found contests to enhance")
+
+	var results []*EnhancementResult
+	for _, contest := range contests {
+		result, err := tde.EnhanceContestPlayers(ctx, contest.ID)
+		if err != nil {
+			logger.WithError(err).WithField("contest_id", contest.ID).Error("Failed to enhance contest players")
+			continue
+		}
+		results = append(results, result)
+	}
+
+	logger.WithField("results", len(results)).Info("Completed tournament data enhancement for all contests")
+	return results, nil
+}
+
+// GetEnhancedPlayersForContest retrieves enhanced players for a contest
+func (tde *TournamentDataEnricher) GetEnhancedPlayersForContest(ctx context.Context, contestID uuid.UUID) ([]types.Player, error) {
+	var players []types.Player
+	err := tde.db.WithContext(ctx).
+		Where("contest_id = ? AND data_source = ?", contestID, "enhanced").
+		Order("projected_points DESC").
+		Find(&players).Error
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to get enhanced players: %w", err)
+	}
+
+	return players, nil
+}
+
+// RefreshEnhancedData refreshes enhanced data for all contest players
+func (tde *TournamentDataEnricher) RefreshEnhancedData(ctx context.Context, contestID uuid.UUID) error {
+	logger := tde.logger.WithFields(logrus.Fields{
+		"component":  "tournament_enricher",
+		"contest_id": contestID,
+		"operation":  "refresh",
+	})
+
+	logger.Info("Refreshing enhanced data for contest")
+
+	// Reset enhanced players to contest status
+	if err := tde.db.WithContext(ctx).
+		Model(&types.Player{}).
+		Where("contest_id = ? AND data_source = ?", contestID, "enhanced").
+		Updates(map[string]interface{}{
+			"data_source":      "contest",
+			"projected_points": 0,
+			"floor_points":     0,
+			"ceiling_points":   0,
+			"updated_at":       time.Now(),
+		}).Error; err != nil {
+		return fmt.Errorf("failed to reset player data: %w", err)
+	}
+
+	// Re-enhance with fresh data
+	_, err := tde.EnhanceContestPlayers(ctx, contestID)
+	if err != nil {
+		return fmt.Errorf("failed to re-enhance players: %w", err)
+	}
+
+	logger.Info("Refreshed enhanced data for contest")
+	return nil
+}
+
+// GetEnhancementStats returns statistics about data enhancement for a contest
+func (tde *TournamentDataEnricher) GetEnhancementStats(ctx context.Context, contestID uuid.UUID) (map[string]interface{}, error) {
+	var totalPlayers int64
+	var enhancedPlayers int64
+	var contestPlayers int64
+
+	// Count total players
+	if err := tde.db.WithContext(ctx).Model(&types.Player{}).Where("contest_id = ?", contestID).Count(&totalPlayers).Error; err != nil {
+		return nil, fmt.Errorf("failed to count total players: %w", err)
+	}
+
+	// Count enhanced players
+	if err := tde.db.WithContext(ctx).Model(&types.Player{}).
+		Where("contest_id = ? AND data_source = ?", contestID, "enhanced").
+		Count(&enhancedPlayers).Error; err != nil {
+		return nil, fmt.Errorf("failed to count enhanced players: %w", err)
+	}
+
+	// Count contest-only players
+	if err := tde.db.WithContext(ctx).Model(&types.Player{}).
+		Where("contest_id = ? AND data_source = ?", contestID, "contest").
+		Count(&contestPlayers).Error; err != nil {
+		return nil, fmt.Errorf("failed to count contest players: %w", err)
+	}
+
+	// Get average projections
+	var avgProjections struct {
+		AvgProjected float64
+		AvgFloor     float64
+		AvgCeiling   float64
+	}
+	
+	err := tde.db.WithContext(ctx).Model(&types.Player{}).
+		Select("AVG(projected_points) as avg_projected, AVG(floor_points) as avg_floor, AVG(ceiling_points) as avg_ceiling").
+		Where("contest_id = ? AND data_source = ?", contestID, "enhanced").
+		Scan(&avgProjections).Error
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to get average projections: %w", err)
+	}
+
+	stats := map[string]interface{}{
+		"total_players":         totalPlayers,
+		"enhanced_players":      enhancedPlayers,
+		"contest_only_players":  contestPlayers,
+		"enhancement_rate":      float64(enhancedPlayers) / float64(totalPlayers),
+		"avg_projected_points":  avgProjections.AvgProjected,
+		"avg_floor_points":      avgProjections.AvgFloor,
+		"avg_ceiling_points":    avgProjections.AvgCeiling,
+	}
+
+	return stats, nil
+}

@@ -46,7 +46,7 @@ func NewConnectionWithConfig(config ConnectionConfig) (*DB, error) {
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
 		},
-		PrepareStmt: true,
+		PrepareStmt: false,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
@@ -139,10 +139,10 @@ func (db *DB) HealthCheck() error {
 	if err != nil {
 		return fmt.Errorf("failed to get database instance: %w", err)
 	}
-	
+
 	if err := sqlDB.Ping(); err != nil {
 		return fmt.Errorf("database ping failed: %w", err)
 	}
-	
+
 	return nil
 }

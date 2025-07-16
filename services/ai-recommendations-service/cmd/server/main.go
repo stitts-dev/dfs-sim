@@ -129,10 +129,13 @@ func main() {
 	// WebSocket endpoint for real-time recommendation updates
 	router.GET("/ws/ai-recommendations/:user_id", wsHub.HandleWebSocket)
 
-	// Health check endpoints
+	// Health check endpoints (support both GET and HEAD)
 	router.GET("/health", healthHandler.GetHealth)
+	router.HEAD("/health", healthHandler.GetHealth)
 	router.GET("/ready", healthHandler.GetReady)
+	router.HEAD("/ready", healthHandler.GetReady)
 	router.GET("/metrics", healthHandler.GetMetrics)
+	router.HEAD("/metrics", healthHandler.GetMetrics)
 
 	// Create HTTP server
 	srv := &http.Server{

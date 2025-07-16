@@ -49,4 +49,4 @@ export type {
 
 // Re-export auth hook for convenience
 export { usePhoneAuth, useAuthGuard } from '@/hooks/usePhoneAuth'
-export { useAuthStore } from '@/store/auth'
+export { useUnifiedAuthStore } from '@/store/unifiedAuth'

@@ -1,0 +1,378 @@
+package services
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"github.com/stitts-dev/dfs-sim/shared/pkg/database"
+	"github.com/stitts-dev/dfs-sim/shared/types"
+	"gorm.io/gorm"
+)
+
+// ContestPlayerDefinition represents a player from a fantasy contest
+type ContestPlayerDefinition struct {
+	ContestPlayerID     string  `json:"contest_player_id"`
+	ExternalPlatformID  string  `json:"external_platform_id"`
+	Name                string  `json:"name"`
+	Position            string  `json:"position"`
+	Team                string  `json:"team"`
+	SalaryDK            int     `json:"salary_dk"`
+	SalaryFD            int     `json:"salary_fd"`
+	ImageURL            string  `json:"image_url"`
+	Platform            string  `json:"platform"` // draftkings, fanduel, etc
+}
+
+// ContestDefinition represents a fantasy contest with its player pool
+type ContestDefinition struct {
+	ContestID     uuid.UUID                 `json:"contest_id"`
+	SportID       uuid.UUID                 `json:"sport_id"`
+	TournamentID  *uuid.UUID                `json:"tournament_id"`
+	Platform      string                    `json:"platform"`
+	ContestType   string                    `json:"contest_type"`
+	Players       []ContestPlayerDefinition `json:"players"`
+}
+
+// ContestPlayerImporter imports players from fantasy contest definitions
+type ContestPlayerImporter struct {
+	db     *database.DB
+	logger *logrus.Logger
+}
+
+// NewContestPlayerImporter creates a new contest player importer
+func NewContestPlayerImporter(db *database.DB, logger *logrus.Logger) *ContestPlayerImporter {
+	return &ContestPlayerImporter{
+		db:     db,
+		logger: logger,
+	}
+}
+
+// ImportContestPlayers imports players from a contest definition
+func (cpi *ContestPlayerImporter) ImportContestPlayers(ctx context.Context, contestDef ContestDefinition) error {
+	logger := cpi.logger.WithFields(logrus.Fields{
+		"component":    "contest_player_importer",
+		"contest_id":   contestDef.ContestID,
+		"platform":     contestDef.Platform,
+		"player_count": len(contestDef.Players),
+	})
+
+	logger.Info("Starting contest player import")
+
+	// Validate contest exists
+	var contest types.Contest
+	if err := cpi.db.First(&contest, contestDef.ContestID).Error; err != nil {
+		return fmt.Errorf("contest not found: %w", err)
+	}
+
+	// Start transaction
+	tx := cpi.db.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	imported := 0
+	skipped := 0
+	errors := 0
+
+	for _, playerDef := range contestDef.Players {
+		if err := cpi.importSinglePlayer(ctx, tx, contestDef, playerDef); err != nil {
+			logger.WithError(err).WithField("player", playerDef.Name).Error("Failed to import player")
+			errors++
+			continue
+		}
+
+		// Check if player already exists for this contest
+		var existingPlayer types.Player
+		err := tx.Where("contest_id = ? AND contest_player_id = ?", 
+			contestDef.ContestID, playerDef.ContestPlayerID).First(&existingPlayer).Error
+		
+		if err == nil {
+			skipped++
+			continue
+		}
+
+		imported++
+	}
+
+	if errors > 0 {
+		tx.Rollback()
+		return fmt.Errorf("failed to import %d players", errors)
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	logger.WithFields(logrus.Fields{
+		"imported": imported,
+		"skipped":  skipped,
+		"errors":   errors,
+	}).Info("Contest player import completed")
+
+	return nil
+}
+
+// importSinglePlayer imports a single player from contest definition
+func (cpi *ContestPlayerImporter) importSinglePlayer(ctx context.Context, tx *gorm.DB, contestDef ContestDefinition, playerDef ContestPlayerDefinition) error {
+	// Check if player already exists for this contest
+	var existingPlayer types.Player
+	err := tx.Where("contest_id = ? AND contest_player_id = ?", 
+		contestDef.ContestID, playerDef.ContestPlayerID).First(&existingPlayer).Error
+	
+	if err == nil {
+		// Player exists, update it
+		return cpi.updateExistingPlayer(ctx, tx, &existingPlayer, playerDef)
+	}
+
+	// Create new player
+	player := types.Player{
+		ID:                 uuid.New(),
+		SportID:            contestDef.SportID,
+		ExternalID:         playerDef.ContestPlayerID, // Use contest player ID as external ID
+		ContestPlayerID:    &playerDef.ContestPlayerID,
+		ExternalPlatformID: &playerDef.ExternalPlatformID,
+		Name:               playerDef.Name,
+		Position:           &playerDef.Position,
+		Team:               &playerDef.Team,
+		SalaryDK:           &playerDef.SalaryDK,
+		SalaryFD:           &playerDef.SalaryFD,
+		ImageURL:           &playerDef.ImageURL,
+		ContestID:          &contestDef.ContestID,
+		DataSource:         stringPtr("contest"),
+		IsActive:           boolPtr(true),
+		// Initialize with default values - will be enhanced later
+		ProjectedPoints: floatPtr(0.0),
+		FloorPoints:     floatPtr(0.0),
+		CeilingPoints:   floatPtr(0.0),
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}
+
+	// Set tournament ID if available
+	if contestDef.TournamentID != nil {
+		player.TournamentID = contestDef.TournamentID
+	}
+
+	if err := tx.Create(&player).Error; err != nil {
+		return fmt.Errorf("failed to create player: %w", err)
+	}
+
+	cpi.logger.WithFields(logrus.Fields{
+		"player_id":   player.ID,
+		"player_name": player.Name,
+		"contest_id":  contestDef.ContestID,
+	}).Debug("Created contest player")
+
+	return nil
+}
+
+// updateExistingPlayer updates an existing player with new contest data
+func (cpi *ContestPlayerImporter) updateExistingPlayer(ctx context.Context, tx *gorm.DB, player *types.Player, playerDef ContestPlayerDefinition) error {
+	updates := map[string]interface{}{
+		"name":                  playerDef.Name,
+		"position":              playerDef.Position,
+		"team":                  playerDef.Team,
+		"salary_dk":             playerDef.SalaryDK,
+		"salary_fd":             playerDef.SalaryFD,
+		"image_url":             playerDef.ImageURL,
+		"external_platform_id":  playerDef.ExternalPlatformID,
+		"updated_at":            time.Now(),
+	}
+
+	if err := tx.Model(player).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to update player: %w", err)
+	}
+
+	cpi.logger.WithFields(logrus.Fields{
+		"player_id":   player.ID,
+		"player_name": player.Name,
+	}).Debug("Updated existing contest player")
+
+	return nil
+}
+
+// ImportDraftKingsGolfContest imports players from a DraftKings golf contest
+func (cpi *ContestPlayerImporter) ImportDraftKingsGolfContest(ctx context.Context, contestID uuid.UUID, sportID uuid.UUID, tournamentID *uuid.UUID) error {
+	// This would typically fetch from DraftKings API
+	// For now, we'll create a sample contest definition
+	samplePlayers := []ContestPlayerDefinition{
+		{
+			ContestPlayerID:    "dk_scottie_scheffler",
+			ExternalPlatformID: "draftkings_12345",
+			Name:               "Scottie Scheffler",
+			Position:           "G",
+			Team:               "USA",
+			SalaryDK:           12000,
+			SalaryFD:           11500,
+			Platform:           "draftkings",
+		},
+		{
+			ContestPlayerID:    "dk_jon_rahm",
+			ExternalPlatformID: "draftkings_12346",
+			Name:               "Jon Rahm",
+			Position:           "G",
+			Team:               "ESP",
+			SalaryDK:           11800,
+			SalaryFD:           11200,
+			Platform:           "draftkings",
+		},
+		{
+			ContestPlayerID:    "dk_rory_mcilroy",
+			ExternalPlatformID: "draftkings_12347",
+			Name:               "Rory McIlroy",
+			Position:           "G",
+			Team:               "NIR",
+			SalaryDK:           11600,
+			SalaryFD:           11000,
+			Platform:           "draftkings",
+		},
+		{
+			ContestPlayerID:    "dk_viktor_hovland",
+			ExternalPlatformID: "draftkings_12348",
+			Name:               "Viktor Hovland",
+			Position:           "G",
+			Team:               "NOR",
+			SalaryDK:           10800,
+			SalaryFD:           10400,
+			Platform:           "draftkings",
+		},
+		{
+			ContestPlayerID:    "dk_collin_morikawa",
+			ExternalPlatformID: "draftkings_12349",
+			Name:               "Collin Morikawa",
+			Position:           "G",
+			Team:               "USA",
+			SalaryDK:           10600,
+			SalaryFD:           10200,
+			Platform:           "draftkings",
+		},
+	}
+
+	contestDef := ContestDefinition{
+		ContestID:    contestID,
+		SportID:      sportID,
+		TournamentID: tournamentID,
+		Platform:     "draftkings",
+		ContestType:  "gpp",
+		Players:      samplePlayers,
+	}
+
+	return cpi.ImportContestPlayers(ctx, contestDef)
+}
+
+// ImportFanDuelGolfContest imports players from a FanDuel golf contest
+func (cpi *ContestPlayerImporter) ImportFanDuelGolfContest(ctx context.Context, contestID uuid.UUID, sportID uuid.UUID, tournamentID *uuid.UUID) error {
+	// This would typically fetch from FanDuel API
+	// For now, we'll create a sample contest definition with different salaries
+	samplePlayers := []ContestPlayerDefinition{
+		{
+			ContestPlayerID:    "fd_scottie_scheffler",
+			ExternalPlatformID: "fanduel_98765",
+			Name:               "Scottie Scheffler",
+			Position:           "G",
+			Team:               "USA",
+			SalaryDK:           12000,
+			SalaryFD:           11500,
+			Platform:           "fanduel",
+		},
+		{
+			ContestPlayerID:    "fd_jon_rahm",
+			ExternalPlatformID: "fanduel_98766",
+			Name:               "Jon Rahm",
+			Position:           "G",
+			Team:               "ESP",
+			SalaryDK:           11800,
+			SalaryFD:           11200,
+			Platform:           "fanduel",
+		},
+		{
+			ContestPlayerID:    "fd_rory_mcilroy",
+			ExternalPlatformID: "fanduel_98767",
+			Name:               "Rory McIlroy",
+			Position:           "G",
+			Team:               "NIR",
+			SalaryDK:           11600,
+			SalaryFD:           11000,
+			Platform:           "fanduel",
+		},
+		{
+			ContestPlayerID:    "fd_viktor_hovland",
+			ExternalPlatformID: "fanduel_98768",
+			Name:               "Viktor Hovland",
+			Position:           "G",
+			Team:               "NOR",
+			SalaryDK:           10800,
+			SalaryFD:           10400,
+			Platform:           "fanduel",
+		},
+		{
+			ContestPlayerID:    "fd_collin_morikawa",
+			ExternalPlatformID: "fanduel_98769",
+			Name:               "Collin Morikawa",
+			Position:           "G",
+			Team:               "USA",
+			SalaryDK:           10600,
+			SalaryFD:           10200,
+			Platform:           "fanduel",
+		},
+	}
+
+	contestDef := ContestDefinition{
+		ContestID:    contestID,
+		SportID:      sportID,
+		TournamentID: tournamentID,
+		Platform:     "fanduel",
+		ContestType:  "gpp",
+		Players:      samplePlayers,
+	}
+
+	return cpi.ImportContestPlayers(ctx, contestDef)
+}
+
+// GetContestPlayers retrieves all players for a contest
+func (cpi *ContestPlayerImporter) GetContestPlayers(ctx context.Context, contestID uuid.UUID) ([]types.Player, error) {
+	var players []types.Player
+	err := cpi.db.WithContext(ctx).Where("contest_id = ? AND data_source = ?", contestID, "contest").Find(&players).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get contest players: %w", err)
+	}
+
+	return players, nil
+}
+
+// DeleteContestPlayers removes all players for a contest
+func (cpi *ContestPlayerImporter) DeleteContestPlayers(ctx context.Context, contestID uuid.UUID) error {
+	result := cpi.db.WithContext(ctx).Where("contest_id = ? AND data_source = ?", contestID, "contest").Delete(&types.Player{})
+	if result.Error != nil {
+		return fmt.Errorf("failed to delete contest players: %w", result.Error)
+	}
+
+	cpi.logger.WithFields(logrus.Fields{
+		"contest_id":     contestID,
+		"players_deleted": result.RowsAffected,
+	}).Info("Deleted contest players")
+
+	return nil
+}
+
+// Helper functions
+func stringPtr(s string) *string {
+	return &s
+}
+
+func boolPtr(b bool) *bool {
+	return &b
+}
+
+func floatPtr(f float64) *float64 {
+	return &f
+}
+
+func intPtr(i int) *int {
+	return &i
+}

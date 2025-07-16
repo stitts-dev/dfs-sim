@@ -1,12 +1,12 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"gorm.io/datatypes"
-	"gorm.io/gorm"
 )
 
 // EventType represents different types of real-time events
@@ -97,7 +97,7 @@ func (OwnershipSnapshot) TableName() string {
 // GetPlayerOwnership returns ownership percentage for a specific player
 func (os *OwnershipSnapshot) GetPlayerOwnership(playerID uint) float64 {
 	var ownership map[string]float64
-	if err := os.PlayerOwnership.Unmarshal(&ownership); err != nil {
+	if err := json.Unmarshal(os.PlayerOwnership, &ownership); err != nil {
 		return 0.0
 	}
 	

@@ -9,9 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
-	"github.com/supabase-community/supabase-go"
 	"github.com/supabase-community/gotrue-go/types"
+	"github.com/supabase-community/supabase-go"
+	"gorm.io/gorm"
 
 	"github.com/stitts-dev/dfs-sim/services/user-service/internal/models"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/config"
@@ -29,7 +29,7 @@ type AuthHandler struct {
 // NewAuthHandler creates a new auth handler
 func NewAuthHandler(db *database.DB, cfg *config.Config, logger *logrus.Logger) *AuthHandler {
 	fmt.Printf("🔑 AuthHandler: Creating new auth handler\n")
-	
+
 	// Initialize Supabase client
 	supabaseClient, err := supabase.NewClient(
 		cfg.SupabaseURL,
@@ -39,7 +39,7 @@ func NewAuthHandler(db *database.DB, cfg *config.Config, logger *logrus.Logger) 
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to initialize Supabase client")
 	}
-	
+
 	fmt.Printf("🔑 AuthHandler: Auth handler created successfully\n")
 	return &AuthHandler{
 		db:         db,
@@ -156,17 +156,17 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 	// Get or create user in our database
 	user, err := models.GetUserByID(h.db, supabaseUserID)
 	isNewUser := false
-	
+
 	if err == gorm.ErrRecordNotFound {
 		// Create new user
-		user, err = models.CreateUser(h.db, supabaseUserID, normalizedPhone)
+		user, err = models.CreateUser(h.db, supabaseUserID)
 		if err != nil {
 			h.logger.WithError(err).Error("Failed to create user")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 			return
 		}
 		isNewUser = true
-		
+
 		// Create default preferences for new user
 		if _, err := models.CreateUserPreferences(h.db, supabaseUserID); err != nil {
 			h.logger.WithError(err).Error("Failed to create user preferences")
@@ -271,7 +271,7 @@ func (h *AuthHandler) validateAndNormalizePhone(phone string) (string, error) {
 	// Remove all non-digit characters except +
 	re := regexp.MustCompile(`[^\d+]`)
 	cleaned := re.ReplaceAllString(phone, "")
-	
+
 	// Add + if not present
 	if !regexp.MustCompile(`^\+`).MatchString(cleaned) {
 		// Assume US number if no country code
@@ -281,12 +281,12 @@ func (h *AuthHandler) validateAndNormalizePhone(phone string) (string, error) {
 			return "", fmt.Errorf("invalid phone number format")
 		}
 	}
-	
+
 	// Validate E.164 format
 	if !regexp.MustCompile(`^\+[1-9]\d{1,14}$`).MatchString(cleaned) {
 		return "", fmt.Errorf("invalid phone number format")
 	}
-	
+
 	return cleaned, nil
 }
 

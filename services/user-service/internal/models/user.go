@@ -11,27 +11,26 @@ import (
 // User represents a user that references Supabase auth.users
 type User struct {
 	ID               uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
-	PhoneNumber      string     `gorm:"uniqueIndex;size:20;not null" json:"phone_number"`
 	FirstName        *string    `gorm:"size:100" json:"first_name,omitempty"`
 	LastName         *string    `gorm:"size:100" json:"last_name,omitempty"`
-	
+
 	// Subscription and billing
 	SubscriptionTier      string     `gorm:"size:50;default:free" json:"subscription_tier"`
 	SubscriptionStatus    string     `gorm:"size:50;default:active" json:"subscription_status"`
 	SubscriptionExpiresAt *time.Time `json:"subscription_expires_at,omitempty"`
 	StripeCustomerID      *string    `gorm:"size:255" json:"stripe_customer_id,omitempty"`
-	
+
 	// Usage tracking
 	MonthlyOptimizationsUsed int       `gorm:"default:0" json:"monthly_optimizations_used"`
 	MonthlySimulationsUsed   int       `gorm:"default:0" json:"monthly_simulations_used"`
 	UsageResetDate           time.Time `gorm:"type:date;default:CURRENT_DATE" json:"usage_reset_date"`
-	
+
 	// Account status
 	IsActive     bool       `gorm:"default:true" json:"is_active"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
-	
+
 	// Relationships
 	Preferences *UserPreferences `gorm:"foreignKey:UserID" json:"preferences,omitempty"`
 }
@@ -51,7 +50,7 @@ type UserPreferences struct {
 	TooltipsEnabled        bool           `gorm:"default:true" json:"tooltips_enabled"`
 	CreatedAt              time.Time      `json:"created_at"`
 	UpdatedAt              time.Time      `json:"updated_at"`
-	
+
 	// Relationships
 	User User `gorm:"constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
 }
@@ -77,6 +76,21 @@ type SubscriptionTier struct {
 // TableName returns the table name for User
 func (User) TableName() string {
 	return "users"
+}
+
+// GetName returns the computed full name for API compatibility
+func (u *User) GetName() string {
+	var name string
+	if u.FirstName != nil {
+		name = *u.FirstName
+	}
+	if u.LastName != nil {
+		if name != "" {
+			name += " "
+		}
+		name += *u.LastName
+	}
+	return name
 }
 
 // TableName returns the table name for UserPreferences
@@ -114,17 +128,17 @@ func (u *User) CanOptimize(db *database.DB) (bool, error) {
 	if err := u.ResetUsageIfNeeded(db); err != nil {
 		return false, err
 	}
-	
+
 	tier, err := u.GetTier(db)
 	if err != nil {
 		return false, err
 	}
-	
+
 	// Unlimited optimizations
 	if tier.MonthlyOptimizations == -1 {
 		return true, nil
 	}
-	
+
 	return u.MonthlyOptimizationsUsed < tier.MonthlyOptimizations, nil
 }
 
@@ -134,17 +148,17 @@ func (u *User) CanSimulate(db *database.DB) (bool, error) {
 	if err := u.ResetUsageIfNeeded(db); err != nil {
 		return false, err
 	}
-	
+
 	tier, err := u.GetTier(db)
 	if err != nil {
 		return false, err
 	}
-	
+
 	// Unlimited simulations
 	if tier.MonthlySimulations == -1 {
 		return true, nil
 	}
-	
+
 	return u.MonthlySimulationsUsed < tier.MonthlySimulations, nil
 }
 
@@ -169,7 +183,7 @@ func (u *User) ResetUsageIfNeeded(db *database.DB) error {
 	now := time.Now()
 	currentMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	resetMonth := time.Date(u.UsageResetDate.Year(), u.UsageResetDate.Month(), 1, 0, 0, 0, 0, u.UsageResetDate.Location())
-	
+
 	if currentMonth.After(resetMonth) {
 		updates := map[string]interface{}{
 			"monthly_optimizations_used": 0,
@@ -183,7 +197,7 @@ func (u *User) ResetUsageIfNeeded(db *database.DB) error {
 		u.MonthlySimulationsUsed = 0
 		u.UsageResetDate = now
 	}
-	
+
 	return nil
 }
 
@@ -196,23 +210,15 @@ func GetUserByID(db *database.DB, userID uuid.UUID) (*User, error) {
 	return &user, err
 }
 
-// GetUserByPhoneNumber fetches user by phone number
-func GetUserByPhoneNumber(db *database.DB, phoneNumber string) (*User, error) {
-	var user User
-	err := db.Where("phone_number = ?", phoneNumber).First(&user).Error
-	return &user, err
-}
-
 // CreateUser creates a new user with given Supabase auth user ID
-func CreateUser(db *database.DB, userID uuid.UUID, phoneNumber string) (*User, error) {
+func CreateUser(db *database.DB, userID uuid.UUID) (*User, error) {
 	user := &User{
 		ID:               userID,
-		PhoneNumber:      phoneNumber,
 		SubscriptionTier: "free",
 		UsageResetDate:   time.Now(),
 		IsActive:         true,
 	}
-	
+
 	err := db.Create(user).Error
 	return user, err
 }
@@ -231,7 +237,7 @@ func CreateUserPreferences(db *database.DB, userID uuid.UUID) (*UserPreferences,
 		BeginnerMode:           true,
 		TooltipsEnabled:        true,
 	}
-	
+
 	err := db.Create(preferences).Error
 	return preferences, err
 }

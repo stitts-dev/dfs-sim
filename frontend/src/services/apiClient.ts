@@ -1,12 +1,13 @@
 // Enhanced API client with automatic token refresh and error handling
-import { useAuthStore } from '@/store/auth'
+import { useUnifiedAuthStore } from '@/store/unifiedAuth'
 
 // API response interceptor for handling expired tokens
 export const createApiClient = () => {
   const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'
   
   const makeRequest = async (endpoint: string, options: RequestInit = {}): Promise<Response> => {
-    const { token, refreshToken, logout } = useAuthStore.getState()
+    const { phoneToken, supabaseSession, authMethod, refreshSession, logout } = useUnifiedAuthStore.getState()
+    const token = authMethod === 'phone' ? phoneToken : supabaseSession?.access_token
     
     // Add Authorization header if token exists
     const headers: Record<string, string> = {
@@ -29,10 +30,12 @@ export const createApiClient = () => {
     if (response.status === 401 && token) {
       try {
         console.log('Token expired, attempting refresh...')
-        await refreshToken()
+        await refreshSession()
         
         // Retry request with new token
-        const { token: newToken } = useAuthStore.getState()
+        const { phoneToken: newPhoneToken, supabaseSession: newSupabaseSession, authMethod: currentAuthMethod } = useUnifiedAuthStore.getState()
+        const newToken = currentAuthMethod === 'phone' ? newPhoneToken : newSupabaseSession?.access_token
+        
         if (newToken) {
           headers['Authorization'] = `Bearer ${newToken}`
           response = await fetch(`${apiUrl}${endpoint}`, {

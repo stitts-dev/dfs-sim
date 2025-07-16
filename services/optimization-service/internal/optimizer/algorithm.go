@@ -14,29 +14,23 @@ import (
 )
 
 type OptimizeConfig struct {
-	SalaryCap           int              `json:"salary_cap"`
-	NumLineups          int              `json:"num_lineups"`
-	MinDifferentPlayers int              `json:"min_different_players"`
-	UseCorrelations     bool             `json:"use_correlations"`
-	CorrelationWeight   float64          `json:"correlation_weight"`
-	StackingRules       []StackingRule   `json:"stacking_rules"`
-	LockedPlayers       []uint           `json:"locked_players"`
-	ExcludedPlayers     []uint           `json:"excluded_players"`
-	MinExposure         map[uint]float64 `json:"min_exposure"`
-	MaxExposure         map[uint]float64 `json:"max_exposure"`
-	Contest             *types.Contest  `json:"-"`
+	SalaryCap           int                     `json:"salary_cap"`
+	NumLineups          int                     `json:"num_lineups"`
+	MinDifferentPlayers int                     `json:"min_different_players"`
+	UseCorrelations     bool                    `json:"use_correlations"`
+	CorrelationWeight   float64                 `json:"correlation_weight"`
+	StackingRules       []types.StackingRule    `json:"stacking_rules"`
+	LockedPlayers       []uuid.UUID             `json:"locked_players"`
+	ExcludedPlayers     []uuid.UUID             `json:"excluded_players"`
+	MinExposure         map[uuid.UUID]float64   `json:"min_exposure"`
+	MaxExposure         map[uuid.UUID]float64   `json:"max_exposure"`
+	Contest             *types.Contest          `json:"-"`
 	
 	// Portfolio-level constraints (optional)
 	UsePortfolioConstraints bool                 `json:"use_portfolio_constraints"`
 	PortfolioConfig         *PortfolioConstraint `json:"portfolio_config,omitempty"`
 }
 
-type StackingRule struct {
-	Type       string   `json:"type"` // "team", "game", "mini"
-	MinPlayers int      `json:"min_players"`
-	MaxPlayers int      `json:"max_players"`
-	Teams      []string `json:"teams,omitempty"`
-}
 
 // PortfolioConstraint defines portfolio-level optimization constraints
 type PortfolioConstraint struct {
@@ -58,9 +52,16 @@ type PortfolioLimit struct {
 
 type OptimizerResult struct {
 	Lineups           []types.GeneratedLineup `json:"lineups"`
-	OptimizationTime  int64           `json:"optimization_time_ms"`
-	TotalCombinations int64           `json:"total_combinations"`
-	ValidCombinations int64           `json:"valid_combinations"`
+	OptimizationTime  int64                   `json:"optimization_time_ms"`
+	TotalCombinations int64                   `json:"total_combinations"`
+	ValidCombinations int64                   `json:"valid_combinations"`
+	Metadata          OptimizerMetadata       `json:"metadata"`
+}
+
+type OptimizerMetadata struct {
+	ExecutionTime   time.Duration `json:"execution_time"`
+	Algorithm       string        `json:"algorithm"`
+	PerformanceMode string        `json:"performance_mode"`
 }
 
 type lineupCandidate struct {
@@ -69,7 +70,7 @@ type lineupCandidate struct {
 	projectedPoints float64
 	positions       map[string][]types.Player
 	// Track which position slot each player fills (for flex positions)
-	playerPositions map[uint]string // playerID -> position slot filled
+	playerPositions map[uuid.UUID]string // playerID -> position slot filled
 }
 
 func OptimizeLineups(players []types.Player, config OptimizeConfig) (*OptimizerResult, error) {
@@ -135,18 +136,36 @@ func OptimizeLineups(players []types.Player, config OptimizeConfig) (*OptimizerR
 		lineupPlayers := make([]types.LineupPlayer, len(candidate.players))
 		for j, player := range candidate.players {
 			// Use appropriate salary based on platform
-			salary := player.SalaryDK
-			if strings.ToLower(config.Contest.Platform) == "fanduel" && player.SalaryFD > 0 {
-				salary = player.SalaryFD
+			salary := 0
+			if player.SalaryDK != nil {
+				salary = *player.SalaryDK
+			}
+			if strings.ToLower(config.Contest.Platform) == "fanduel" && player.SalaryFD != nil && *player.SalaryFD > 0 {
+				salary = *player.SalaryFD
+			}
+			
+			team := ""
+			if player.Team != nil {
+				team = *player.Team
+			}
+			
+			position := ""
+			if player.Position != nil {
+				position = *player.Position
+			}
+			
+			projectedPoints := 0.0
+			if player.ProjectedPoints != nil {
+				projectedPoints = *player.ProjectedPoints
 			}
 			
 			lineupPlayers[j] = types.LineupPlayer{
 				ID:              player.ID,
 				Name:            player.Name,
-				Team:            player.Team,
-				Position:        player.Position,
+				Team:            team,
+				Position:        position,
 				Salary:          salary,
-				ProjectedPoints: player.ProjectedPoints,
+				ProjectedPoints: projectedPoints,
 			}
 		}
 
@@ -163,12 +182,19 @@ func OptimizeLineups(players []types.Player, config OptimizeConfig) (*OptimizerR
 
 	result.OptimizationTime = getCurrentTimeMs() - startTime
 	result.ValidCombinations = int64(len(validLineups))
+	
+	// Set metadata
+	result.Metadata = OptimizerMetadata{
+		ExecutionTime:   time.Duration(result.OptimizationTime) * time.Millisecond,
+		Algorithm:       "standard",
+		PerformanceMode: "balanced",
+	}
 
 	return result, nil
 }
 
 func filterPlayers(players []types.Player, config OptimizeConfig, logger *logrus.Entry) []types.Player {
-	excludeMap := make(map[uint]bool)
+	excludeMap := make(map[uuid.UUID]bool)
 	for _, id := range config.ExcludedPlayers {
 		excludeMap[id] = true
 	}
@@ -178,10 +204,9 @@ func filterPlayers(players []types.Player, config OptimizeConfig, logger *logrus
 	injuredCount := 0
 
 	for _, player := range players {
-		playerID := uint(player.ID.ID())
-		if excludeMap[playerID] {
+		if excludeMap[player.ID] {
 			excludedCount++
-		} else if player.IsInjured {
+		} else if player.IsInjured != nil && *player.IsInjured {
 			injuredCount++
 		} else {
 			filtered = append(filtered, player)
@@ -201,14 +226,40 @@ func filterPlayers(players []types.Player, config OptimizeConfig, logger *logrus
 func organizeByPosition(players []types.Player, logger *logrus.Entry) map[string][]types.Player {
 	byPosition := make(map[string][]types.Player)
 	for _, player := range players {
-		byPosition[player.Position] = append(byPosition[player.Position], player)
+		position := ""
+		if player.Position != nil {
+			position = *player.Position
+		}
+		byPosition[position] = append(byPosition[position], player)
 	}
 
 	// Sort each position by value (projected points per dollar)
 	for position := range byPosition {
 		sort.Slice(byPosition[position], func(i, j int) bool {
-			valueI := byPosition[position][i].ProjectedPoints / float64(byPosition[position][i].SalaryDK)
-			valueJ := byPosition[position][j].ProjectedPoints / float64(byPosition[position][j].SalaryDK)
+			playerI := byPosition[position][i]
+			playerJ := byPosition[position][j]
+			
+			// Handle nil values safely
+			projI := 0.0
+			if playerI.ProjectedPoints != nil {
+				projI = *playerI.ProjectedPoints
+			}
+			projJ := 0.0
+			if playerJ.ProjectedPoints != nil {
+				projJ = *playerJ.ProjectedPoints
+			}
+			
+			salaryI := 1 // Avoid division by zero
+			if playerI.SalaryDK != nil && *playerI.SalaryDK > 0 {
+				salaryI = *playerI.SalaryDK
+			}
+			salaryJ := 1 // Avoid division by zero
+			if playerJ.SalaryDK != nil && *playerJ.SalaryDK > 0 {
+				salaryJ = *playerJ.SalaryDK
+			}
+			
+			valueI := projI / float64(salaryI)
+			valueJ := projJ / float64(salaryJ)
 			return valueI > valueJ
 		})
 	}
@@ -356,13 +407,17 @@ func generateLineupsWithDP(playersByPosition map[string][]types.Player, config O
 				totalSalary:     genLineup.TotalSalary,
 				projectedPoints: genLineup.ProjectedPoints,
 				positions:       make(map[string][]types.Player),
-				playerPositions: make(map[uint]string),
+				playerPositions: make(map[uuid.UUID]string),
 			}
 			
 			// Organize by position for compatibility
 			for _, player := range players {
-				candidate.positions[player.Position] = append(candidate.positions[player.Position], player)
-				candidate.playerPositions[uint(player.ID.ID())] = player.Position
+				position := ""
+				if player.Position != nil {
+					position = *player.Position
+				}
+				candidate.positions[position] = append(candidate.positions[position], player)
+				candidate.playerPositions[player.ID] = position
 			}
 			
 			validLineups = append(validLineups, candidate)
@@ -432,7 +487,11 @@ func generateLineupsWithSimpleDP(allPlayers []types.Player, config OptimizeConfi
 			// Check exposure constraints
 			canAdd := true
 			for _, player := range lineup.players {
-				if !exposureManager.CanAddPlayer(player.ID, player.Team, i) {
+				team := ""
+				if player.Team != nil {
+					team = *player.Team
+				}
+				if !exposureManager.CanAddPlayer(player.ID, team, i) {
 					canAdd = false
 					break
 				}
@@ -443,7 +502,11 @@ func generateLineupsWithSimpleDP(allPlayers []types.Player, config OptimizeConfi
 				
 				// Track exposure
 				for _, player := range lineup.players {
-					exposureManager.AddPlayerToLineup(player.ID, player.Team, i)
+					team := ""
+					if player.Team != nil {
+						team = *player.Team
+					}
+					exposureManager.AddPlayerToLineup(player.ID, team, i)
 				}
 				exposureManager.CompleteLineup()
 			}
@@ -503,9 +566,9 @@ func generateLineupsWithBacktracking(playersByPosition map[string][]types.Player
 	}
 
 	// Use recursive backtracking to generate lineups
-	var backtrack func(current *lineupCandidate, slotIndex int, usedPlayers map[uint]bool)
+	var backtrack func(current *lineupCandidate, slotIndex int, usedPlayers map[uuid.UUID]bool)
 
-	backtrack = func(current *lineupCandidate, slotIndex int, usedPlayers map[uint]bool) {
+	backtrack = func(current *lineupCandidate, slotIndex int, usedPlayers map[uuid.UUID]bool) {
 		// Log backtrack start for first slot only
 		if slotIndex == 0 {
 			logger.WithFields(logrus.Fields{
@@ -520,8 +583,7 @@ func generateLineupsWithBacktracking(playersByPosition map[string][]types.Player
 			// Check if this slot is already filled
 			slotFilled := false
 			for _, player := range current.players {
-				playerID := uint(player.ID.ID())
-				if pos, ok := current.playerPositions[playerID]; ok && pos == slots[slotIndex].SlotName {
+				if pos, ok := current.playerPositions[player.ID]; ok && pos == slots[slotIndex].SlotName {
 					slotFilled = true
 					break
 				}
@@ -552,8 +614,7 @@ func generateLineupsWithBacktracking(playersByPosition map[string][]types.Player
 				for _, lockedID := range config.LockedPlayers {
 					found := false
 					for _, player := range current.players {
-						playerID := uint(player.ID.ID())
-						if playerID == lockedID {
+						if player.ID == lockedID {
 							found = true
 							break
 						}
@@ -575,7 +636,7 @@ func generateLineupsWithBacktracking(playersByPosition map[string][]types.Player
 				lineupCopy.players = make([]types.Player, len(current.players))
 				copy(lineupCopy.players, current.players)
 				// Deep copy playerPositions map
-				lineupCopy.playerPositions = make(map[uint]string)
+				lineupCopy.playerPositions = make(map[uuid.UUID]string)
 				for k, v := range current.playerPositions {
 					lineupCopy.playerPositions[k] = v
 				}
@@ -627,9 +688,8 @@ func generateLineupsWithBacktracking(playersByPosition map[string][]types.Player
 			// Try each player that can fill this slot
 			playersTried := 0
 			for _, player := range players {
-				playerID := uint(player.ID.ID())
 				// Skip if player already used
-				if usedPlayers[playerID] {
+				if usedPlayers[player.ID] {
 					continue
 				}
 
@@ -644,9 +704,11 @@ func generateLineupsWithBacktracking(playersByPosition map[string][]types.Player
 				// Add player to lineup
 				current.players = append(current.players, player)
 				current.totalSalary += playerSalary
-				current.projectedPoints += player.ProjectedPoints
-				current.playerPositions[playerID] = slot.SlotName
-				usedPlayers[playerID] = true
+				if player.ProjectedPoints != nil {
+					current.projectedPoints += *player.ProjectedPoints
+				}
+				current.playerPositions[player.ID] = slot.SlotName
+				usedPlayers[player.ID] = true
 
 				// Recurse to fill next slot
 				backtrack(current, slotIndex+1, usedPlayers)
@@ -654,9 +716,11 @@ func generateLineupsWithBacktracking(playersByPosition map[string][]types.Player
 				// Backtrack
 				current.players = current.players[:len(current.players)-1]
 				current.totalSalary -= playerSalary
-				current.projectedPoints -= player.ProjectedPoints
-				delete(current.playerPositions, playerID)
-				usedPlayers[playerID] = false
+				if player.ProjectedPoints != nil {
+					current.projectedPoints -= *player.ProjectedPoints
+				}
+				delete(current.playerPositions, player.ID)
+				usedPlayers[player.ID] = false
 
 				// Limit how many players we try per position to avoid exponential explosion
 				if playersTried >= 10 && len(validLineups) > 0 {
@@ -677,13 +741,13 @@ func generateLineupsWithBacktracking(playersByPosition map[string][]types.Player
 	initial := &lineupCandidate{
 		players:         make([]types.Player, 0, len(slots)),
 		positions:       make(map[string][]types.Player),
-		playerPositions: make(map[uint]string),
+		playerPositions: make(map[uuid.UUID]string),
 	}
 
-	usedPlayers := make(map[uint]bool)
+	usedPlayers := make(map[uuid.UUID]bool)
 
 	// For locked players, we'll track them but let the backtracking algorithm handle placement
-	lockedPlayerSet := make(map[uint]bool)
+	lockedPlayerSet := make(map[uuid.UUID]bool)
 	for _, lockedID := range config.LockedPlayers {
 		lockedPlayerSet[lockedID] = true
 	}
@@ -723,8 +787,7 @@ func generatePositionCombinations(current *lineupCandidate, players []types.Play
 		// Check if any player is already in lineup
 		valid := true
 		for _, player := range combo {
-			playerIDKey := uint(player.ID.ID())
-			if hasPlayer(current.players, playerIDKey) {
+			if hasPlayer(current.players, player.ID) {
 				valid = false
 				break
 			}
@@ -739,7 +802,9 @@ func generatePositionCombinations(current *lineupCandidate, players []types.Play
 		additionalPoints := 0.0
 		for _, player := range combo {
 			additionalSalary += getSalaryForPlatform(player, config.Contest.Platform)
-			additionalPoints += player.ProjectedPoints
+			if player.ProjectedPoints != nil {
+				additionalPoints += *player.ProjectedPoints
+			}
 		}
 
 		if current.totalSalary+additionalSalary > config.SalaryCap {
@@ -748,10 +813,9 @@ func generatePositionCombinations(current *lineupCandidate, players []types.Play
 
 		// Add players and recurse
 		for _, player := range combo {
-			playerIDKey := uint(player.ID.ID())
 			current.players = append(current.players, player)
 			current.positions[position] = append(current.positions[position], player)
-			current.playerPositions[playerIDKey] = position
+			current.playerPositions[player.ID] = position
 		}
 		current.totalSalary += additionalSalary
 		current.projectedPoints += additionalPoints
@@ -765,7 +829,7 @@ func generatePositionCombinations(current *lineupCandidate, players []types.Play
 
 		// Remove players (backtrack)
 		for _, player := range combo {
-			delete(current.playerPositions, uint(player.ID.ID()))
+			delete(current.playerPositions, player.ID)
 		}
 		current.players = current.players[:len(current.players)-len(combo)]
 		current.positions[position] = current.positions[position][:len(current.positions[position])-len(combo)]
@@ -788,12 +852,14 @@ func generateFlexCombinations(current *lineupCandidate, eligiblePlayers []types.
 		additionalPoints := 0.0
 
 		for _, player := range combo {
-			if hasPlayer(current.players, uint(player.ID.ID())) {
+			if hasPlayer(current.players, player.ID) {
 				valid = false
 				break
 			}
 			additionalSalary += getSalaryForPlatform(player, config.Contest.Platform)
-			additionalPoints += player.ProjectedPoints
+			if player.ProjectedPoints != nil {
+				additionalPoints += *player.ProjectedPoints
+			}
 		}
 
 		if !valid || current.totalSalary+additionalSalary > config.SalaryCap {
@@ -804,7 +870,7 @@ func generateFlexCombinations(current *lineupCandidate, eligiblePlayers []types.
 		flexPosition := positionOrder[posIndex] // UTIL, FLEX, G, F
 		for _, player := range combo {
 			current.players = append(current.players, player)
-			current.playerPositions[uint(player.ID.ID())] = flexPosition
+			current.playerPositions[player.ID] = flexPosition
 		}
 		current.totalSalary += additionalSalary
 		current.projectedPoints += additionalPoints
@@ -817,7 +883,7 @@ func generateFlexCombinations(current *lineupCandidate, eligiblePlayers []types.
 
 		// Remove players
 		for _, player := range combo {
-			delete(current.playerPositions, uint(player.ID.ID()))
+			delete(current.playerPositions, player.ID)
 		}
 		current.players = current.players[:len(current.players)-len(combo)]
 		current.totalSalary -= additionalSalary
@@ -849,8 +915,18 @@ func getFlexEligiblePlayers(playersByPosition map[string][]types.Player, flexTyp
 	sort.Slice(eligible, func(i, j int) bool {
 		salaryI := getSalaryForPlatform(eligible[i], "draftkings")
 		salaryJ := getSalaryForPlatform(eligible[j], "draftkings")
-		valueI := eligible[i].ProjectedPoints / float64(salaryI)
-		valueJ := eligible[j].ProjectedPoints / float64(salaryJ)
+		
+		projI := 0.0
+		if eligible[i].ProjectedPoints != nil {
+			projI = *eligible[i].ProjectedPoints
+		}
+		projJ := 0.0
+		if eligible[j].ProjectedPoints != nil {
+			projJ = *eligible[j].ProjectedPoints
+		}
+		
+		valueI := projI / float64(salaryI)
+		valueJ := projJ / float64(salaryJ)
 		return valueI > valueJ
 	})
 
@@ -877,7 +953,7 @@ func isValidLineup(lineup *lineupCandidate, config OptimizeConfig) bool {
 	return true
 }
 
-func validateStackingRules(lineup *lineupCandidate, rules []StackingRule) bool {
+func validateStackingRules(lineup *lineupCandidate, rules []types.StackingRule) bool {
 	for _, rule := range rules {
 		switch rule.Type {
 		case "team":
@@ -893,10 +969,14 @@ func validateStackingRules(lineup *lineupCandidate, rules []StackingRule) bool {
 	return true
 }
 
-func validateTeamStacking(lineup *lineupCandidate, rule StackingRule) bool {
+func validateTeamStacking(lineup *lineupCandidate, rule types.StackingRule) bool {
 	teamCounts := make(map[string]int)
 	for _, player := range lineup.players {
-		teamCounts[player.Team]++
+		team := ""
+		if player.Team != nil {
+			team = *player.Team
+		}
+		teamCounts[team]++
 	}
 
 	// Check specific teams if provided
@@ -919,11 +999,19 @@ func validateTeamStacking(lineup *lineupCandidate, rule StackingRule) bool {
 	return true
 }
 
-func validateGameStacking(lineup *lineupCandidate, rule StackingRule) bool {
+func validateGameStacking(lineup *lineupCandidate, rule types.StackingRule) bool {
 	gameCounts := make(map[string]int)
 
 	for _, player := range lineup.players {
-		gameKey := getGameKey(player.Team, player.Opponent)
+		team := ""
+		if player.Team != nil {
+			team = *player.Team
+		}
+		opponent := ""
+		if player.Opponent != nil {
+			opponent = *player.Opponent
+		}
+		gameKey := getGameKey(team, opponent)
 		gameCounts[gameKey]++
 	}
 
@@ -942,7 +1030,7 @@ func applyDiversityConstraints(lineups []lineupCandidate, config OptimizeConfig)
 	}
 
 	finalLineups := make([]lineupCandidate, 0, config.NumLineups)
-	playerExposure := make(map[uint]int)
+	playerExposure := make(map[uuid.UUID]int)
 
 	for _, lineup := range lineups {
 		if len(finalLineups) >= config.NumLineups {
@@ -960,10 +1048,9 @@ func applyDiversityConstraints(lineups []lineupCandidate, config OptimizeConfig)
 		// Check exposure limits
 		valid := true
 		for _, player := range lineup.players {
-			playerIDKey := uint(player.ID.ID())
-			currentExposure := float64(playerExposure[playerIDKey]) / float64(len(finalLineups)+1)
+			currentExposure := float64(playerExposure[player.ID]) / float64(len(finalLineups)+1)
 
-			if maxExp, exists := config.MaxExposure[playerIDKey]; exists && currentExposure > maxExp {
+			if maxExp, exists := config.MaxExposure[player.ID]; exists && currentExposure > maxExp {
 				valid = false
 				break
 			}
@@ -978,8 +1065,7 @@ func applyDiversityConstraints(lineups []lineupCandidate, config OptimizeConfig)
 
 		// Update exposure counts
 		for _, player := range lineup.players {
-			playerIDKey := uint(player.ID.ID())
-			playerExposure[playerIDKey]++
+			playerExposure[player.ID]++
 		}
 	}
 
@@ -988,17 +1074,16 @@ func applyDiversityConstraints(lineups []lineupCandidate, config OptimizeConfig)
 
 // Helper functions
 
-func hasPlayer(players []types.Player, playerID uint) bool {
+func hasPlayer(players []types.Player, playerID uuid.UUID) bool {
 	for _, p := range players {
-		pIDKey := uint(p.ID.ID())
-		if pIDKey == playerID {
+		if p.ID == playerID {
 			return true
 		}
 	}
 	return false
 }
 
-func isPlayerLocked(playerID uint, lockedPlayers []uint) bool {
+func isPlayerLocked(playerID uuid.UUID, lockedPlayers []uuid.UUID) bool {
 	for _, id := range lockedPlayers {
 		if id == playerID {
 			return true
@@ -1007,7 +1092,7 @@ func isPlayerLocked(playerID uint, lockedPlayers []uint) bool {
 	return false
 }
 
-func mapToSlice(playerMap map[uint]types.Player) []types.Player {
+func mapToSlice(playerMap map[uuid.UUID]types.Player) []types.Player {
 	players := make([]types.Player, 0, len(playerMap))
 	for _, player := range playerMap {
 		players = append(players, player)
@@ -1049,16 +1134,14 @@ func getGameKey(team1, team2 string) string {
 }
 
 func countDifferentPlayers(lineup1, lineup2 lineupCandidate) int {
-	playerMap := make(map[uint]bool)
+	playerMap := make(map[uuid.UUID]bool)
 	for _, p := range lineup1.players {
-		playerIDKey := uint(p.ID.ID())
-		playerMap[playerIDKey] = true
+		playerMap[p.ID] = true
 	}
 
 	different := 0
 	for _, p := range lineup2.players {
-		playerIDKey := uint(p.ID.ID())
-		if !playerMap[playerIDKey] {
+		if !playerMap[p.ID] {
 			different++
 		}
 	}
@@ -1106,8 +1189,17 @@ func calculateCorrelationBonus(players []types.Player, weight float64) float64 {
 	gameCounts := make(map[string]int)
 
 	for _, player := range players {
-		teamCounts[player.Team]++
-		gameKey := getGameKey(player.Team, player.Opponent)
+		team := ""
+		if player.Team != nil {
+			team = *player.Team
+		}
+		teamCounts[team]++
+		
+		opponent := ""
+		if player.Opponent != nil {
+			opponent = *player.Opponent
+		}
+		gameKey := getGameKey(team, opponent)
 		gameCounts[gameKey]++
 	}
 
@@ -1144,30 +1236,31 @@ func convertDPResultToLineup(result *DPResult, allPlayers []types.Player, config
 	lineup := &lineupCandidate{
 		players:         make([]types.Player, 0, len(result.OptimalPlayers)),
 		positions:       make(map[string][]types.Player),
-		playerPositions: make(map[uint]string),
+		playerPositions: make(map[uuid.UUID]string),
 		totalSalary:     0,
 		projectedPoints: 0,
 	}
 	
 	for _, playerID := range result.OptimalPlayers {
-		// Convert uint back to UUID for lookup
-		var playerUUID uuid.UUID
-		for _, p := range allPlayers {
-			if uint(p.ID.ID()) == playerID {
-				playerUUID = p.ID
-				break
-			}
-		}
-		if player, exists := playerMap[playerUUID]; exists && playerUUID != uuid.Nil {
+		if player, exists := playerMap[playerID]; exists && playerID != uuid.Nil {
 			lineup.players = append(lineup.players, player)
-			lineup.totalSalary += player.SalaryDK // Use DK salary by default
-			lineup.projectedPoints += player.ProjectedPoints
+			// Use DK salary by default
+			if player.SalaryDK != nil {
+				lineup.totalSalary += *player.SalaryDK
+			}
+			if player.ProjectedPoints != nil {
+				lineup.projectedPoints += *player.ProjectedPoints
+			}
 			
 			// Track by position
-			if lineup.positions[player.Position] == nil {
-				lineup.positions[player.Position] = make([]types.Player, 0)
+			position := ""
+			if player.Position != nil {
+				position = *player.Position
 			}
-			lineup.positions[player.Position] = append(lineup.positions[player.Position], player)
+			if lineup.positions[position] == nil {
+				lineup.positions[position] = make([]types.Player, 0)
+			}
+			lineup.positions[position] = append(lineup.positions[position], player)
 		} else {
 			logger.WithField("player_id", playerID).Warn("Optimal player not found in player map")
 		}
@@ -1263,10 +1356,14 @@ func calculateLineupRisk(lineup lineupCandidate) float64 {
 	highSalaryCount := 0
 
 	for _, player := range lineup.players {
-		teamCounts[player.Team]++
+		team := ""
+		if player.Team != nil {
+			team = *player.Team
+		}
+		teamCounts[team]++
 		
 		// Count high-salary players (top 25% salary range)
-		if player.SalaryDK > 8000 { // Simplified threshold using DK salary
+		if player.SalaryDK != nil && *player.SalaryDK > 8000 { // Simplified threshold using DK salary
 			highSalaryCount++
 		}
 	}
@@ -1315,7 +1412,11 @@ func validatePortfolioConstraints(lineup lineupCandidate, config *PortfolioConst
 	if len(config.TeamConstraints) > 0 {
 		teamCounts := make(map[string]int)
 		for _, player := range lineup.players {
-			teamCounts[player.Team]++
+			team := ""
+		if player.Team != nil {
+			team = *player.Team
+		}
+		teamCounts[team]++
 		}
 
 		for team, limit := range config.TeamConstraints {
@@ -1359,7 +1460,11 @@ func calculateLineupDiversification(lineup lineupCandidate) float64 {
 	// Calculate Herfindahl-Hirschman Index for teams
 	teamCounts := make(map[string]int)
 	for _, player := range lineup.players {
-		teamCounts[player.Team]++
+		team := ""
+		if player.Team != nil {
+			team = *player.Team
+		}
+		teamCounts[team]++
 	}
 
 	hhi := 0.0
@@ -1512,7 +1617,7 @@ func getSportNameFromID(sportID uuid.UUID) string {
 }
 
 // filterOutTopPlayers removes top N players from the list for diversity
-func filterOutTopPlayers(players []types.Player, optimalPlayerIDs []uint, countToRemove int) []types.Player {
+func filterOutTopPlayers(players []types.Player, optimalPlayerIDs []uuid.UUID, countToRemove int) []types.Player {
 	if countToRemove <= 0 || len(optimalPlayerIDs) == 0 {
 		return players
 	}
@@ -1523,15 +1628,14 @@ func filterOutTopPlayers(players []types.Player, optimalPlayerIDs []uint, countT
 		removeCount = len(optimalPlayerIDs)
 	}
 	
-	removeMap := make(map[uint]bool)
+	removeMap := make(map[uuid.UUID]bool)
 	for i := 0; i < removeCount; i++ {
 		removeMap[optimalPlayerIDs[i]] = true
 	}
 	
 	filtered := make([]types.Player, 0, len(players))
 	for _, player := range players {
-		playerID := uint(player.ID.ID())
-		if !removeMap[playerID] {
+		if !removeMap[player.ID] {
 			filtered = append(filtered, player)
 		}
 	}
@@ -1579,12 +1683,15 @@ func getTopWeight(weightedLineups []WeightedLineup) float64 {
 
 // getSalaryForPlatform gets the appropriate salary for the platform
 func getSalaryForPlatform(player types.Player, platform string) int {
-	if strings.ToLower(platform) == "fanduel" && player.SalaryFD > 0 {
-		return player.SalaryFD
+	if strings.ToLower(platform) == "fanduel" && player.SalaryFD != nil && *player.SalaryFD > 0 {
+		return *player.SalaryFD
 	}
-	if player.SalaryDK > 0 {
-		return player.SalaryDK
+	if player.SalaryDK != nil && *player.SalaryDK > 0 {
+		return *player.SalaryDK
 	}
-	// Fallback to FD if DK is 0
-	return player.SalaryFD
+	// Fallback to FD if DK is 0 or nil
+	if player.SalaryFD != nil {
+		return *player.SalaryFD
+	}
+	return 0
 }

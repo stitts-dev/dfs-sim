@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from 'react-query'
-import { useAuthStore } from '@/store/auth'
+import { useUnifiedAuthStore } from '@/store/unifiedAuth'
 // import { PhoneAuthError } from '@/types/auth'
 
 /**
@@ -10,19 +10,24 @@ export const usePhoneAuth = () => {
   const queryClient = useQueryClient()
   const {
     loginWithPhone,
-    verifyOTP,
-    resendOTP,
+    verifyPhoneOTP,
+    resendPhoneOTP,
     logout,
     clearError,
     user,
-    token,
+    phoneToken,
     isAuthenticated,
     isLoading,
     error,
     currentPhoneNumber,
     otpSent,
     verificationInProgress
-  } = useAuthStore()
+  } = useUnifiedAuthStore()
+  
+  // Provide backward compatibility
+  const verifyOTP = verifyPhoneOTP
+  const resendOTP = resendPhoneOTP
+  const token = phoneToken
 
   // Send OTP mutation
   const sendOTPMutation = useMutation(

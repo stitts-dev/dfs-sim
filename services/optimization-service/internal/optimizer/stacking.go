@@ -2,8 +2,6 @@ package optimizer
 
 import (
 	"sort"
-
-	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
 // StackType represents different types of stacks
@@ -19,7 +17,7 @@ const (
 // Stack represents a group of correlated players
 type Stack struct {
 	Type             StackType
-	Players          []types.Player
+	Players          []OptimizationPlayer
 	TotalSalary      int
 	ProjectedPoints  float64
 	CorrelationScore float64
@@ -29,13 +27,13 @@ type Stack struct {
 
 // StackBuilder helps build optimal stacks
 type StackBuilder struct {
-	players      []types.Player
+	players      []OptimizationPlayer
 	sport        string
 	correlations *CorrelationMatrix
 }
 
 // NewStackBuilder creates a new stack builder
-func NewStackBuilder(players []types.Player, sport string) *StackBuilder {
+func NewStackBuilder(players []OptimizationPlayer, sport string) *StackBuilder {
 	return &StackBuilder{
 		players:      players,
 		sport:        sport,
@@ -48,7 +46,7 @@ func (sb *StackBuilder) BuildTeamStacks(minSize, maxSize int) []Stack {
 	stacks := make([]Stack, 0)
 
 	// Group players by team
-	teamPlayers := make(map[string][]types.Player)
+	teamPlayers := make(map[string][]OptimizationPlayer)
 	for _, player := range sb.players {
 		teamPlayers[player.Team] = append(teamPlayers[player.Team], player)
 	}
@@ -79,7 +77,7 @@ func (sb *StackBuilder) BuildGameStacks(minSize, maxSize int) []Stack {
 	stacks := make([]Stack, 0)
 
 	// Group players by game
-	gamePlayers := make(map[string][]types.Player)
+	gamePlayers := make(map[string][]OptimizationPlayer)
 	for _, player := range sb.players {
 		gameKey := getGameKey(player.Team, player.Opponent)
 		gamePlayers[gameKey] = append(gamePlayers[gameKey], player)
@@ -171,7 +169,7 @@ func (sb *StackBuilder) getMLBStacks() []Stack {
 	// Filter for likely consecutive batters
 	for i := range battingStacks {
 		// Exclude pitchers from stacks
-		filtered := make([]types.Player, 0)
+		filtered := make([]OptimizationPlayer, 0)
 		for _, p := range battingStacks[i].Players {
 			if p.Position != "P" {
 				filtered = append(filtered, p)
@@ -223,7 +221,7 @@ func (sb *StackBuilder) buildQBStacks() []Stack {
 	stacks := make([]Stack, 0)
 
 	// Find all QBs
-	qbs := make([]types.Player, 0)
+	qbs := make([]OptimizationPlayer, 0)
 	for _, p := range sb.players {
 		if p.Position == "QB" {
 			qbs = append(qbs, p)
@@ -233,7 +231,7 @@ func (sb *StackBuilder) buildQBStacks() []Stack {
 	// For each QB, find best stacking partners
 	for _, qb := range qbs {
 		// Get teammates
-		teammates := make([]types.Player, 0)
+		teammates := make([]OptimizationPlayer, 0)
 		for _, p := range sb.players {
 			if p.Team == qb.Team && (p.Position == "WR" || p.Position == "TE") {
 				teammates = append(teammates, p)
@@ -244,7 +242,7 @@ func (sb *StackBuilder) buildQBStacks() []Stack {
 		for _, teammate := range teammates {
 			stack := Stack{
 				Type:            TeamStack,
-				Players:         []types.Player{qb, teammate},
+				Players:         []OptimizationPlayer{qb, teammate},
 				Team:            qb.Team,
 				TotalSalary:     getPlayerSalary(qb) + getPlayerSalary(teammate),
 				ProjectedPoints: qb.ProjectedPoints + teammate.ProjectedPoints,
@@ -259,7 +257,7 @@ func (sb *StackBuilder) buildQBStacks() []Stack {
 				for j := i + 1; j < len(teammates); j++ {
 					stack := Stack{
 						Type:            TeamStack,
-						Players:         []types.Player{qb, teammates[i], teammates[j]},
+						Players:         []OptimizationPlayer{qb, teammates[i], teammates[j]},
 						Team:            qb.Team,
 						TotalSalary:     getPlayerSalary(qb) + getPlayerSalary(teammates[i]) + getPlayerSalary(teammates[j]),
 						ProjectedPoints: qb.ProjectedPoints + teammates[i].ProjectedPoints + teammates[j].ProjectedPoints,
@@ -271,7 +269,7 @@ func (sb *StackBuilder) buildQBStacks() []Stack {
 		}
 
 		// Bring-back stacks (QB + teammate + opponent)
-		opponents := make([]types.Player, 0)
+		opponents := make([]OptimizationPlayer, 0)
 		for _, p := range sb.players {
 			if p.Opponent == qb.Team && (p.Position == "WR" || p.Position == "TE" || p.Position == "RB") {
 				opponents = append(opponents, p)
@@ -282,7 +280,7 @@ func (sb *StackBuilder) buildQBStacks() []Stack {
 			for _, opp := range opponents {
 				stack := Stack{
 					Type:            GameStack,
-					Players:         []types.Player{qb, teammate, opp},
+					Players:         []OptimizationPlayer{qb, teammate, opp},
 					Game:            getGameKey(qb.Team, qb.Opponent),
 					TotalSalary:     getPlayerSalary(qb) + getPlayerSalary(teammate) + getPlayerSalary(opp),
 					ProjectedPoints: qb.ProjectedPoints + teammate.ProjectedPoints + opp.ProjectedPoints,
@@ -307,7 +305,7 @@ func (sb *StackBuilder) buildRBDefenseStacks() []Stack {
 				if (def.Position == "DST" || def.Position == "D/ST") && def.Team == player.Team {
 					stack := Stack{
 						Type:            MiniStack,
-						Players:         []types.Player{player, def},
+						Players:         []OptimizationPlayer{player, def},
 						Team:            player.Team,
 						TotalSalary:     getPlayerSalary(player) + getPlayerSalary(def),
 						ProjectedPoints: player.ProjectedPoints + def.ProjectedPoints,
@@ -326,7 +324,7 @@ func (sb *StackBuilder) buildNHLLineStacks() []Stack {
 	stacks := make([]Stack, 0)
 
 	// Group by team
-	teamPlayers := make(map[string][]types.Player)
+	teamPlayers := make(map[string][]OptimizationPlayer)
 	for _, p := range sb.players {
 		if p.Position == "C" || p.Position == "W" {
 			teamPlayers[p.Team] = append(teamPlayers[p.Team], p)
@@ -335,8 +333,8 @@ func (sb *StackBuilder) buildNHLLineStacks() []Stack {
 
 	// Build line combinations
 	for team, players := range teamPlayers {
-		centers := make([]types.Player, 0)
-		wingers := make([]types.Player, 0)
+		centers := make([]OptimizationPlayer, 0)
+		wingers := make([]OptimizationPlayer, 0)
 
 		for _, p := range players {
 			if p.Position == "C" {
@@ -352,7 +350,7 @@ func (sb *StackBuilder) buildNHLLineStacks() []Stack {
 				for j := i + 1; j < len(wingers); j++ {
 					stack := Stack{
 						Type:            TeamStack,
-						Players:         []types.Player{c, wingers[i], wingers[j]},
+						Players:         []OptimizationPlayer{c, wingers[i], wingers[j]},
 						Team:            team,
 						TotalSalary:     getPlayerSalary(c) + getPlayerSalary(wingers[i]) + getPlayerSalary(wingers[j]),
 						ProjectedPoints: c.ProjectedPoints + wingers[i].ProjectedPoints + wingers[j].ProjectedPoints,
@@ -367,16 +365,16 @@ func (sb *StackBuilder) buildNHLLineStacks() []Stack {
 	return stacks
 }
 
-func (sb *StackBuilder) generateTeamStacks(team string, players []types.Player, minSize, maxSize int) []Stack {
+func (sb *StackBuilder) generateTeamStacks(team string, players []OptimizationPlayer, minSize, maxSize int) []Stack {
 	stacks := make([]Stack, 0)
 
 	// Generate all combinations of the specified size range
 	for size := minSize; size <= maxSize && size <= len(players); size++ {
-		sb.generateCombinations(players, size, func(combo []types.Player) {
+		sb.generateCombinations(players, size, func(combo []OptimizationPlayer) {
 			stack := Stack{
 				Type:            TeamStack,
 				Team:            team,
-				Players:         make([]types.Player, len(combo)),
+				Players:         make([]OptimizationPlayer, len(combo)),
 				TotalSalary:     0,
 				ProjectedPoints: 0,
 			}
@@ -396,11 +394,11 @@ func (sb *StackBuilder) generateTeamStacks(team string, players []types.Player, 
 	return stacks
 }
 
-func (sb *StackBuilder) generateGameStacks(game string, players []types.Player, minSize, maxSize int) []Stack {
+func (sb *StackBuilder) generateGameStacks(game string, players []OptimizationPlayer, minSize, maxSize int) []Stack {
 	stacks := make([]Stack, 0)
 
 	// Ensure we have players from both teams
-	teamCounts := make(map[string][]types.Player)
+	teamCounts := make(map[string][]OptimizationPlayer)
 	for _, p := range players {
 		teamCounts[p.Team] = append(teamCounts[p.Team], p)
 	}
@@ -411,7 +409,7 @@ func (sb *StackBuilder) generateGameStacks(game string, players []types.Player, 
 
 	// Generate combinations that include players from both teams
 	for size := minSize; size <= maxSize && size <= len(players); size++ {
-		sb.generateCombinations(players, size, func(combo []types.Player) {
+		sb.generateCombinations(players, size, func(combo []OptimizationPlayer) {
 			// Check if combo has players from multiple teams
 			teams := make(map[string]bool)
 			for _, p := range combo {
@@ -422,7 +420,7 @@ func (sb *StackBuilder) generateGameStacks(game string, players []types.Player, 
 				stack := Stack{
 					Type:            GameStack,
 					Game:            game,
-					Players:         make([]types.Player, len(combo)),
+					Players:         make([]OptimizationPlayer, len(combo)),
 					TotalSalary:     0,
 					ProjectedPoints: 0,
 				}
@@ -443,7 +441,7 @@ func (sb *StackBuilder) generateGameStacks(game string, players []types.Player, 
 	return stacks
 }
 
-func (sb *StackBuilder) generateCombinations(players []types.Player, k int, callback func([]types.Player)) {
+func (sb *StackBuilder) generateCombinations(players []OptimizationPlayer, k int, callback func([]OptimizationPlayer)) {
 	n := len(players)
 	if k > n {
 		return
@@ -452,7 +450,7 @@ func (sb *StackBuilder) generateCombinations(players []types.Player, k int, call
 	// Generate combinations using binary representation
 	for i := 0; i < (1 << n); i++ {
 		if countBits(i) == k {
-			combo := make([]types.Player, 0, k)
+			combo := make([]OptimizationPlayer, 0, k)
 			for j := 0; j < n; j++ {
 				if (i>>j)&1 == 1 {
 					combo = append(combo, players[j])
@@ -476,7 +474,7 @@ func (sb *StackBuilder) buildGolfCountryStacks() []Stack {
 	stacks := make([]Stack, 0)
 
 	// Group players by country (team field in golf represents country)
-	countryPlayers := make(map[string][]types.Player)
+	countryPlayers := make(map[string][]OptimizationPlayer)
 	for _, player := range sb.players {
 		if player.Position == "G" && player.Team != "" {
 			countryPlayers[player.Team] = append(countryPlayers[player.Team], player)
@@ -495,7 +493,7 @@ func (sb *StackBuilder) buildGolfCountryStacks() []Stack {
 				stack := Stack{
 					Type:            TeamStack, // Using TeamStack type for country
 					Team:            country,
-					Players:         []types.Player{players[i], players[j]},
+					Players:         []OptimizationPlayer{players[i], players[j]},
 					TotalSalary:     getPlayerSalary(players[i]) + getPlayerSalary(players[j]),
 					ProjectedPoints: players[i].ProjectedPoints + players[j].ProjectedPoints,
 				}
@@ -512,7 +510,7 @@ func (sb *StackBuilder) buildGolfCountryStacks() []Stack {
 						stack := Stack{
 							Type:            TeamStack,
 							Team:            country,
-							Players:         []types.Player{players[i], players[j], players[k]},
+							Players:         []OptimizationPlayer{players[i], players[j], players[k]},
 							TotalSalary:     getPlayerSalary(players[i]) + getPlayerSalary(players[j]) + getPlayerSalary(players[k]),
 							ProjectedPoints: players[i].ProjectedPoints + players[j].ProjectedPoints + players[k].ProjectedPoints,
 						}
@@ -531,8 +529,8 @@ func (sb *StackBuilder) buildGolfOwnershipStacks() []Stack {
 	stacks := make([]Stack, 0)
 
 	// Separate high and low ownership players
-	highOwned := make([]types.Player, 0)
-	lowOwned := make([]types.Player, 0)
+	highOwned := make([]OptimizationPlayer, 0)
+	lowOwned := make([]OptimizationPlayer, 0)
 
 	for _, player := range sb.players {
 		if player.Position == "G" {
@@ -552,7 +550,7 @@ func (sb *StackBuilder) buildGolfOwnershipStacks() []Stack {
 			if getPlayerSalary(high)+getPlayerSalary(low) <= 18000 { // Avg 9k per player
 				stack := Stack{
 					Type:            MiniStack,
-					Players:         []types.Player{high, low},
+					Players:         []OptimizationPlayer{high, low},
 					TotalSalary:     getPlayerSalary(high) + getPlayerSalary(low),
 					ProjectedPoints: high.ProjectedPoints + low.ProjectedPoints,
 				}
@@ -571,8 +569,8 @@ func (sb *StackBuilder) buildGolfValueStacks() []Stack {
 	stacks := make([]Stack, 0)
 
 	// Separate expensive and cheap players
-	stars := make([]types.Player, 0)
-	scrubs := make([]types.Player, 0)
+	stars := make([]OptimizationPlayer, 0)
+	scrubs := make([]OptimizationPlayer, 0)
 
 	for _, player := range sb.players {
 		if player.Position == "G" {
@@ -587,7 +585,7 @@ func (sb *StackBuilder) buildGolfValueStacks() []Stack {
 	// Build stars and scrubs combinations
 	for _, star := range stars {
 		// Find 2-3 cheap players to pair with each star
-		affordableScrubs := make([]types.Player, 0)
+		affordableScrubs := make([]OptimizationPlayer, 0)
 		for _, scrub := range scrubs {
 			if getPlayerSalary(star)+getPlayerSalary(scrub) <= 16000 { // Leave room for others
 				affordableScrubs = append(affordableScrubs, scrub)
@@ -602,7 +600,7 @@ func (sb *StackBuilder) buildGolfValueStacks() []Stack {
 					if totalSalary <= 23000 { // ~7.7k average
 						stack := Stack{
 							Type:            MiniStack,
-							Players:         []types.Player{star, affordableScrubs[i], affordableScrubs[j]},
+							Players:         []OptimizationPlayer{star, affordableScrubs[i], affordableScrubs[j]},
 							TotalSalary:     totalSalary,
 							ProjectedPoints: star.ProjectedPoints + affordableScrubs[i].ProjectedPoints + affordableScrubs[j].ProjectedPoints,
 						}
@@ -633,16 +631,19 @@ func (sb *StackBuilder) buildGolfValueStacks() []Stack {
 }
 
 // getPlayerSalary returns appropriate salary based on platform
-func getPlayerSalary(player types.Player) int {
+func getPlayerSalary(player OptimizationPlayer) int {
 	// Default to DraftKings, fallback to FanDuel
 	if player.SalaryDK > 0 {
 		return player.SalaryDK
 	}
-	return player.SalaryFD
+	if player.SalaryFD > 0 {
+		return player.SalaryFD
+	}
+	return 0
 }
 
 // getPlayerOwnership returns appropriate ownership based on platform
-func getPlayerOwnership(player types.Player) float64 {
+func getPlayerOwnership(player OptimizationPlayer) float64 {
 	// Default to DraftKings, fallback to FanDuel
 	if player.OwnershipDK > 0 {
 		return player.OwnershipDK

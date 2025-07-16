@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/analytics/ml"
 	"github.com/stitts-dev/dfs-sim/services/optimization-service/internal/analytics/performance"
@@ -454,8 +455,6 @@ func (aw *AnalyticsWorker) processUserPortfolio(userID int) error {
 	config := portfolio.PortfolioConfig{
 		RiskAversion:        0.5,
 		UseRiskParity:       true,
-		MaxIterations:       1000,
-		ConvergenceThreshold: 1e-6,
 	}
 	
 	result, err := portfolio.OptimizePortfolio(aw.ctx, lineupData, config)
@@ -491,7 +490,7 @@ func (aw *AnalyticsWorker) generateUserPredictions(userID int) error {
 	// Generate predictions
 	modelConfig := ml.ModelConfig{
 		ModelType:    "neural_network",
-		EpochCount:   100,
+		Epochs:      100,
 		LearningRate: 0.001,
 	}
 	
@@ -597,10 +596,17 @@ func (aw *AnalyticsWorker) sendPredictionUpdate(userID int, prediction *ml.Predi
 
 // Utility methods
 
-func (aw *AnalyticsWorker) convertUserID(userID int) string {
-	// TODO: Convert int user ID to UUID if needed
-	// For now, return string representation
-	return fmt.Sprintf("%d", userID)
+func (aw *AnalyticsWorker) convertUserID(userID int) uuid.UUID {
+	// TODO: Convert int user ID to UUID properly
+	// For now, create a deterministic UUID from the int
+	// This should be replaced with proper user ID mapping
+	userStr := fmt.Sprintf("%016d", userID) // Pad to 16 digits
+	if len(userStr) > 16 {
+		userStr = userStr[:16]
+	}
+	// Create a deterministic UUID using a namespace
+	namespace := uuid.MustParse("6ba7b810-9dad-11d1-80b4-00c04fd430c8") // Standard namespace
+	return uuid.NewSHA1(namespace, []byte(userStr))
 }
 
 func (aw *AnalyticsWorker) incrementError(errorType string) {

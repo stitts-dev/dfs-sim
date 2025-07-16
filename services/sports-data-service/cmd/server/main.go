@@ -19,6 +19,7 @@ import (
 	"github.com/stitts-dev/dfs-sim/shared/pkg/config"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/database"
 	"github.com/stitts-dev/dfs-sim/shared/pkg/logger"
+	"github.com/stitts-dev/dfs-sim/shared/types"
 )
 
 func main() {
@@ -76,48 +77,44 @@ func main() {
 		structuredLogger,
 	)
 
-	// Initialize golf providers with rate limiting
-	var rapidAPIGolf *providers.RapidAPIGolfClient
-	var espnGolf *providers.ESPNGolfClient
+	// Initialize DataGolf provider (only provider now)
+	var dataGolf *providers.DataGolfClient
 
-	if cfg.RapidAPIKey != "" && cfg.RapidAPIKey != "your-rapidapi-key-here" {
-		logger.WithService("sports-data-service").Info("Initializing RapidAPI Golf provider with rate limiting")
-		rapidAPIGolf = providers.NewRapidAPIGolfClient(cfg.RapidAPIKey, db.DB, cacheService, structuredLogger)
+	// Initialize DataGolf provider if enabled and configured
+	if cfg.DataGolfEnabled && cfg.DataGolfAPIKey != "" {
+		logger.WithService("sports-data-service").Info("Initializing DataGolf provider with advanced analytics")
+		dataGolf = providers.NewDataGolfClient(cfg.DataGolfAPIKey, db.DB, cacheService, structuredLogger)
 	} else {
-		logger.WithService("sports-data-service").Warn("RapidAPI key not configured - will use ESPN fallback only")
+		logger.WithService("sports-data-service").Fatal("DataGolf not configured - DataGolf key missing or disabled (required for operation)")
 	}
 
-	logger.WithService("sports-data-service").Info("Initializing ESPN Golf fallback provider")
-	espnGolf = providers.NewESPNGolfClient(cacheService, structuredLogger)
-
 	// Initialize golf business services
-	golfProjectionService := services.NewGolfProjectionService(db, cacheService, structuredLogger)
+	golfProjectionService := services.NewGolfProjectionService(db, cacheService, structuredLogger, cfg.DataGolfAPIKey)
 
-	// Use ESPN as primary provider if RapidAPI is not available
+	// Use DataGolf as the only provider
 	var primaryGolfProvider interface {
 		GetCurrentTournament() (*providers.GolfTournamentData, error)
 		GetTournamentSchedule() ([]providers.GolfTournamentData, error)
+		GetPlayers(sport types.Sport, date string) ([]types.PlayerData, error)
 	}
-	
-	if rapidAPIGolf != nil {
-		primaryGolfProvider = rapidAPIGolf
-		logger.WithService("sports-data-service").Info("Using RapidAPI as primary golf provider")
+
+	if dataGolf != nil {
+		primaryGolfProvider = dataGolf
+		logger.WithService("sports-data-service").Info("Using DataGolf as the only golf provider (advanced analytics enabled)")
 	} else {
-		primaryGolfProvider = espnGolf
-		logger.WithService("sports-data-service").Info("Using ESPN as primary golf provider (RapidAPI unavailable)")
+		logger.WithService("sports-data-service").Fatal("DataGolf provider is required but not available")
 	}
 
 	golfSyncService := services.NewGolfTournamentSyncService(
 		db, primaryGolfProvider, structuredLogger,
 	)
 
-	// Initialize data fetcher service with all dependencies
+	// Initialize data fetcher service with DataGolf provider
 	dataFetcherService := services.NewDataFetcherService(
 		db,
 		structuredLogger,
 		golfSyncService,
-		rapidAPIGolf,
-		espnGolf,
+		dataGolf,
 		circuitBreakerService,
 		cacheService,
 	)
@@ -131,12 +128,11 @@ func main() {
 
 	// Initialize handlers
 	golfHandler := handlers.NewGolfHandler(
-		db, 
-		cacheService, 
+		db,
+		cacheService,
 		golfProjectionService,
-		golfSyncService, 
-		rapidAPIGolf, 
-		espnGolf,
+		golfSyncService,
+		dataGolf,
 		structuredLogger,
 	)
 	healthHandler := handlers.NewHealthHandler(db, redisClient, startupManager, structuredLogger)
@@ -146,32 +142,35 @@ func main() {
 	{
 		// Sports configuration endpoints (golf service only supports golf)
 		apiV1.GET("/sports/available", golfHandler.GetAvailableSports)
-		
+
 		// Contest endpoints (golf tournaments as contests)
 		apiV1.GET("/contests", golfHandler.ListContests)
 		apiV1.GET("/contests/:id", golfHandler.GetContest)
-		
+
 		// Golf tournament endpoints
 		apiV1.GET("/golf/tournaments", golfHandler.ListTournaments)
 		apiV1.GET("/golf/tournaments/:id", golfHandler.GetTournament)
 		apiV1.GET("/golf/tournaments/:id/leaderboard", golfHandler.GetTournamentLeaderboard)
 		apiV1.GET("/golf/tournaments/:id/players", golfHandler.GetTournamentPlayers)
 		apiV1.POST("/golf/tournaments/sync", golfHandler.SyncTournamentData)
-		
+
 		// Golf player endpoints
 		apiV1.GET("/golf/players/:id", golfHandler.GetGolfPlayer)
 		apiV1.GET("/golf/players/:id/projections", golfHandler.GetPlayerProjections)
 		apiV1.GET("/golf/players/:id/history", golfHandler.GetPlayerCourseHistory)
-		
+
 		// Golf data sync endpoints
 		apiV1.POST("/golf/sync/current", golfHandler.SyncCurrentTournament)
 		apiV1.POST("/golf/sync/schedule", golfHandler.SyncTournamentSchedule)
 	}
 
-	// Health check endpoints
+	// Health check endpoints (support both GET and HEAD)
 	router.GET("/health", healthHandler.GetHealth)
+	router.HEAD("/health", healthHandler.GetHealth)
 	router.GET("/ready", healthHandler.GetReady)
+	router.HEAD("/ready", healthHandler.GetReady)
 	router.GET("/metrics", healthHandler.GetMetrics)
+	router.HEAD("/metrics", healthHandler.GetMetrics)
 
 	// Start critical services
 	logger.WithService("sports-data-service").Info("Starting critical services")
