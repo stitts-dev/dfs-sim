@@ -182,6 +182,7 @@ export class EmailAuthProvider extends AuthProvider {
       const { error } = await supabase.auth.resetPasswordForEmail(
         this.formatInput(email),
         {
+          // Use the shared auth callback route so we can handle both verification and password recovery flows
           redirectTo: `${window.location.origin}/auth/callback`
         }
       )

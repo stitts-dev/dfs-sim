@@ -29,40 +29,42 @@ function App() {
           <Route path="/auth/login" element={<EnhancedLoginPage />} />
           <Route path="/auth/signup" element={<EnhancedSignupPage />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
-          
+          {/* Legacy password reset redirect */}
+          <Route path="/reset-password" element={<AuthCallback />} />
+
           {/* Protected Routes */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route 
-            path="/dashboard" 
+          <Route
+            path="/dashboard"
             element={
               <ProtectedRoute>
                 <Layout>
                   <Dashboard />
                 </Layout>
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path="/optimizer" 
+          <Route
+            path="/optimizer"
             element={
               <ProtectedRoute>
                 <Layout>
                   <Optimizer />
                 </Layout>
               </ProtectedRoute>
-            } 
+            }
           />
-          <Route 
-            path="/lineups" 
+          <Route
+            path="/lineups"
             element={
               <ProtectedRoute>
                 <Layout>
                   <Lineups />
                 </Layout>
               </ProtectedRoute>
-            } 
+            }
           />
-          
+
           {/* Catch all route - redirect to login */}
           <Route path="*" element={<Navigate to="/auth/login" replace />} />
         </Routes>
